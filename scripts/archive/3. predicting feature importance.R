@@ -5,11 +5,15 @@ library(dplyr)
 library(xgboost)
 library(data.table)
 library(ggplot2)
+require(ggrepel)
+extrafont::loadfonts(device="win")
+library(viridis)
+library(gridExtra)
 ####################################################################################################
 ####################################################################################################
 
 # predictors - training
-rgr_xbg_dtrain_predictor <- as.matrix(rgr.msh.train[,6:72])
+rgr_xbg_dtrain_predictor <- as.matrix(rgr.msh.train[,6:ncol(rgr.msh.train)])
 # repsonse - training basal growth rate
 rgr_xbg_dtrain_response_bai_gr <-  rgr.msh.train$BAI_GR
 # repsonse - training basal incriment growth rate
@@ -25,7 +29,7 @@ rgr_xbg_dtrain_biosh_gr <- xgb.DMatrix(data = rgr_xbg_dtrain_predictor,
                                      label = rgr_xbg_dtrain_response_biosh_gr)
 
 # repsonse - training
-rgr_xbg_dtest_predictor <- as.matrix(rgr.msh.test[,6:72])
+rgr_xbg_dtest_predictor <- as.matrix(rgr.msh.test[,6:ncol(rgr.msh.test)])
 # repsonse - testing basal growth rate
 rgr_xbg_dtest_response_bai_gr <-  rgr.msh.test$BAI_GR
 # repsonse - testing basal incriemnt growth rate
@@ -85,7 +89,7 @@ for(i in 1:nrow(hyper_grid_bai)) {
     params = params,
     data = rgr_xbg_dtrain_predictor,
     label = rgr_xbg_dtrain_response_bai_gr,
-    nrounds = 2000,
+    nrounds = 5000,
     nfold = 5,
     objective = "reg:squarederror",  # for regression models
     verbose = 0,                # silent,
@@ -109,11 +113,11 @@ set.seed(100)
 xgb_bai_cv <- xgb.cv(
   data = rgr_xbg_dtrain_predictor,
   label = rgr_xbg_dtrain_response_bai_gr,
-  params = list(max_depth = 5, eta = 0.3, min_child_weigh = 3,
-                subsample = 1, colsample_bytree = 1,
-                verbose = 0, gamma = 0,
+  params = list(max_depth = 7, eta = 0.05, min_child_weigh = 1,
+                subsample = 0.65, colsample_bytree = 1,
+                verbose = 0, gamma = 15,
                 objective = "reg:squarederror"),# try changing gamma
-  nrounds = 2000,
+  nrounds = 5000,
   verbose = 0,
   nfold = 5,
   early_stopping_rounds = 10 # stop if no improvement for 10 consecutive trees
@@ -124,11 +128,11 @@ xgb_bai_cv <- xgb.cv(
 ggplot(xgb_bai_cv$evaluation_log) +
   geom_line(aes(iter, train_rmse_mean), color = "red") +
   geom_line(aes(iter, test_rmse_mean), color = "blue")+
-  ylim(0,1)
+  ylim(0,2)
 
 
 xgb_bai_cv$evaluation_log %>%
-  arrange(train_merror_mean) %>%
+  arrange(train_rsme_mean) %>%
   head(10)
 # if the training cv is much larger than test, I need to increase gamma, from 0 
 # try starting at 10. If train/test cv is super close, then controlled way too much 
@@ -138,16 +142,16 @@ xgb_bai_cv$evaluation_log %>%
 ####################################################################################################
 ####################################################################################################
 
-param_bai <- list(max_depth = 5, eta = 0.3, min_child_weigh = 3,
-                  subsample = 1, colsample_bytree = 1,
-                  verbose = 0, gamma = 0,
+param_bai <- list(max_depth = 7, eta = 0.05, min_child_weigh = 1,
+                  subsample = 0.65, colsample_bytree = 1,
+                  verbose = 0, gamma = 15,
                   objective = "reg:squarederror")
 
 bai_xbg_model_train <- xgb.train(param_bai, rgr_xbg_dtrain_bai_gr,
-                                       nrounds = 2000,
+                                       nrounds = 5000,
                                        early_stopping_rounds = 10,
                                        watchlist = bai_xbg_watchlist)
-# [41]	train-rmse:0.000580	eval-rmse:0.007715
+# [63]	train-rmse:0.835824	eval-rmse:1.018252
 ####################################################################################################
 ####################################################################################################
 ####################################################################################################
@@ -188,7 +192,7 @@ for(i in 1:nrow(hyper_grid_bioi)) {
     params = params,
     data = rgr_xbg_dtrain_predictor,
     label = rgr_xbg_dtrain_response_bioi_gr,
-    nrounds = 3,
+    nrounds = 5000,
     nfold = 5,
     objective = "reg:squarederror",  # for regression models
     verbose = 0,                # silent,
@@ -217,11 +221,11 @@ set.seed(100)
 xgb_bioi_cv <- xgb.cv(
   data = rgr_xbg_dtrain_predictor,
   label = rgr_xbg_dtrain_response_bioi_gr,
-  params = list(max_depth = 5, eta = 0.3, min_child_weigh = 1,
-                subsample = 0.8, colsample_bytree = 1,
-                verbose = 0, gamma = 0,
+  params = list(max_depth = 5, eta = 0.05, min_child_weigh = 1,
+                subsample = 0.65, colsample_bytree = 1,
+                verbose = 0, gamma = 20,
                 objective = "reg:squarederror"),# try changing gamma
-  nrounds = 2000,
+  nrounds = 5000,
   verbose = 0,
   nfold = 5,
   early_stopping_rounds = 10 # stop if no improvement for 10 consecutive trees
@@ -232,7 +236,7 @@ xgb_bioi_cv <- xgb.cv(
 ggplot(xgb_bioi_cv$evaluation_log) +
   geom_line(aes(iter, train_rmse_mean), color = "red") +
   geom_line(aes(iter, test_rmse_mean), color = "blue")+
-  ylim(0,1)
+  ylim(0,3)
 
 
 xgb_bioi_cv$evaluation_log %>%
@@ -246,16 +250,16 @@ xgb_bioi_cv$evaluation_log %>%
 ####################################################################################################
 ####################################################################################################
 
-param_bioi <- list(max_depth = 5, eta = 0.3, min_child_weigh = 1,
-                   subsample = 0.8, colsample_bytree = 1,
-                   verbose = 0, gamma = 0,
+param_bioi <- list(max_depth = 5, eta = 0.05, min_child_weigh = 1,
+                   subsample = 0.65, colsample_bytree = 1,
+                   verbose = 0, gamma = 35,
                    objective = "reg:squarederror")
 
 bioi_xbg_model_train <- xgb.train(param_bioi, rgr_xbg_dtrain_bioi_gr,
-                                  nrounds = 2000,
+                                  nrounds = 5000,
                                   early_stopping_rounds = 10,
                                   watchlist = bioi_xbg_watchlist)
-# [64]	train-rmse:0.000408	eval-rmse:0.011057
+#[96]	train-rmse:1.283951	eval-rmse:2.420790
 ####################################################################################################
 ####################################################################################################
 ####################################################################################################
@@ -295,7 +299,7 @@ for(i in 1:nrow(hyper_grid_biosh)) {
     params = params,
     data = rgr_xbg_dtrain_predictor,
     label = rgr_xbg_dtrain_response_biosh_gr,
-    nrounds = 3,
+    nrounds = 5000,
     nfold = 5,
     objective = "reg:squarederror",  # for regression models
     verbose = 0,                # silent,
@@ -320,11 +324,11 @@ set.seed(100)
 xgb_biosh_cv <- xgb.cv(
   data = rgr_xbg_dtrain_predictor,
   label = rgr_xbg_dtrain_response_biosh_gr,
-  params = list(max_depth = 3, eta = 0.3, min_child_weigh = 1,
-                subsample = 1, colsample_bytree = 0.9,
+  params = list(max_depth = 5, eta = 0.1, min_child_weigh = 7,
+                subsample = 0.65, colsample_bytree = 1,
                 verbose = 0, gamma = 20,
                 objective = "reg:squarederror"),# try changing gamma
-  nrounds = 2000,
+  nrounds = 5000,
   verbose = 0,
   nfold = 5,
   early_stopping_rounds = 10 # stop if no improvement for 10 consecutive trees
@@ -335,7 +339,7 @@ xgb_biosh_cv <- xgb.cv(
 ggplot(xgb_biosh_cv$evaluation_log) +
   geom_line(aes(iter, train_rmse_mean), color = "red") +
   geom_line(aes(iter, test_rmse_mean), color = "blue")+
-  ylim(0,1)
+  ylim(0,1500)
 
 
 xgb_biosh_cv$evaluation_log %>%
@@ -349,13 +353,88 @@ xgb_biosh_cv$evaluation_log %>%
 ####################################################################################################
 ####################################################################################################
 
-param_biosh <- list(max_depth = 3, eta = 0.3, min_child_weigh = 1,
-                    subsample = 1, colsample_bytree = 0.9,
-                    verbose = 0, gamma = 20,
+param_biosh <- list(max_depth = 5, eta = 0.1, min_child_weigh = 7,
+                    subsample = 0.65, colsample_bytree = 1,
+                    verbose = 0, gamma = 25,
                     objective = "reg:squarederror")
 
 biosh_xbg_model_train <- xgb.train(param_biosh, rgr_xbg_dtrain_biosh_gr,
-                                   nrounds = 2000,
+                                   nrounds = 5000,
                                    early_stopping_rounds = 10,
                                    watchlist = biosh_xbg_watchlist)
-# [14]	train-rmse:0.115577	eval-rmse:0.117858
+#[34]	train-rmse:315.913177	eval-rmse:769.533813
+
+####################################################################################################
+####################################################################################################
+####################################################################################################
+####################################################################################################
+#___________________________________ GAIN _________________________________________________________#
+####################################################################################################
+####################################################################################################
+####################################################################################################
+####################################################################################################
+
+# now, we can visialize the relative importance of each of these predictors
+# the big question is, do we see agreement amount the response variables?
+importance_matrix_bai <- xgb.importance(model = bai_xbg_model_train)
+importance_matrix_bioi <- xgb.importance(model = bioi_xbg_model_train)
+importance_matrix_biosh <- xgb.importance(model = biosh_xbg_model_train)
+
+# now, let's see if their is argeement in the top 20 predictors 
+xgb.plot.importance(importance_matrix_bai, top_n = 20, measure = "Gain")
+xgb.plot.importance(importance_matrix_bioi, top_n = 20, measure = "Gain")
+xgb.plot.importance(importance_matrix_biosh, top_n = 20, measure = "Gain")
+
+source("scripts/archive/1. functions.R")
+Labels <- data.frame(read.csv( "data/labels.csv"))
+
+importance_matrix_bai_merged <- merge(importance_matrix_bai,Labels, by ="Feature")
+importance_matrix_bai_merged <- importance_matrix_bai_merged[order(importance_matrix_bai_merged$Gain, decreasing = TRUE),]
+importance_matrix_bioi_merged <- merge(importance_matrix_bioi,Labels, by ="Feature")
+importance_matrix_bioi_merged <- importance_matrix_bioi_merged[order(importance_matrix_bioi_merged$Gain, decreasing = TRUE),]
+importance_matrix_biosh_merged <- merge(importance_matrix_biosh,Labels, by ="Feature")
+importance_matrix_biosh_merged <- importance_matrix_biosh_merged[order(importance_matrix_biosh_merged$Gain, decreasing = TRUE),]
+#######################################################################################################
+#######################################################################################################
+gain_colors <- inferno(3)
+# Plotting
+Plot.XGB.Gain.BAI <- 
+  ggplot(importance_matrix_bai_merged[1:10,], aes(x = reorder(stringr::str_wrap(Label,20), Gain), y = Gain))+
+  geom_bar(stat="identity", width = 0.75, fill = gain_colors[1], color = gain_colors[1])+
+  labs(title = "Basal Area Increment",
+       subtitle  = LETTERS[1])+ #title
+  xlab(" ") +
+  ylab("Gain\n")+
+  ylim(0, 0.39)+
+  coord_flip()+
+  theme_special()
+
+Plot.XGB.Gain.BIOI <- 
+  ggplot(importance_matrix_bioi_merged[1:10,], aes(x = reorder(stringr::str_wrap(Label,20), Gain), y = Gain))+
+  geom_bar(stat="identity", width = 0.75, fill = gain_colors[2], color = gain_colors[2])+
+  labs(title = "Biomass Increment",
+       subtitle  = LETTERS[2])+ #title
+  xlab(" ") +
+  ylab("Gain\n")+
+  ylim(0, 0.39)+
+  coord_flip()+
+  theme_special()
+
+Plot.XGB.Gain.BIOSH <- 
+  ggplot(importance_matrix_biosh_merged[1:10,], aes(x = reorder(stringr::str_wrap(Label,20), Gain), y = Gain))+
+  geom_bar(stat="identity", width = 0.75, fill = gain_colors[3], color = gain_colors[3])+
+  labs(title = "Biomass Scaled to Height",
+       subtitle  = LETTERS[3])+ #title
+  xlab(" ") +
+  ylab("Gain\n")+
+  ylim(0, 0.39)+
+  coord_flip()+
+  theme_special()
+
+
+##########################################################################################################
+png("scripts/figures/gain_xgboost.png", 
+    width = 19 , height = 16, units = 'in', res = 600)
+grid.arrange(grobs = list(Plot.XGB.Gain.BAI, Plot.XGB.Gain.BIOI, Plot.XGB.Gain.BIOSH),
+             nrow = 3)
+dev.off()

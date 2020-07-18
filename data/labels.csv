@@ -1,0 +1,101 @@
+Feature,Label
+Site,Site
+Species,Species
+BAI_GR,Basal Area Increment
+BIOI_GR,Biomass Increment
+BIOSH_GR,Biomass Scaled to Height
+Height.DBH.Ratio,Height:DBH
+Estem,Estem
+Etwig,Etwig
+Branching.Distance,Branching Distance
+Twig.Diameter,Twig Diameter
+Twig.Wood.Density,Twig Wood Density
+Stem.Wood.Density,Stem Wood Density
+Leaf.Mass.Fraction,Leaf Mass Fraction
+Leaf.Area,Leaf Area
+LMA,LMA
+LCC,LCC
+LNC,LNC
+LPC,LPC
+d15N,d15N
+t.b2,t.b2
+Ks,Ks
+Ktwig,Ktwig
+Huber.Value,Huber Value
+X.Lum,XLum
+VD,VD
+X.Sapwood,Sapwood
+d13C,d13C
+Biomass5,Biomass
+pcent.max.Bio5,Percentage Maximum of Biomass
+Symmetric.Competition,Symmetric Competition
+Asymmetric.Competition,Asymmetric Competition
+Soil.Humidity,Soil Humidity
+pH,pH
+Organic.C,Organic Carbon
+N,Nitrogen
+P,Phosphorus
+K,Postassium
+Ca,Calcium
+Mg,Magnesium
+Soil.Depth,Soil Depth
+Slope,Slope
+North.Aspect,Northern Aspect
+East.Aspect,Eastern Aspect
+Elevation,Elevation
+Summer.Max,Summer Maximum Temperture
+Fall.Min,Fall Minimum Temperature
+Mean.Temp,Mean Temperature
+X.Canopy.Opening,Canopy Opening
+Tree.Age,Tree Age
+Tree.Height,Tree Height
+julian.date.2011,Julian Date in 2011
+Branch.Height,Branch Height
+Root.Wood.Density,Root Wood Density
+Twig.branching.angle,Twig Branching Angle
+Hmax,Hmax
+Shade.Tolerance,Shade Tolerance
+Drought.Tolerance,Drought Tolerance
+WaterLogging.Tolerance,WaterLogging Tolerance
+DBH.DGH,DBH:DGH
+Leaf.Area.Ratio,Leaf Area Ratio
+Branch.Dry.Mass,Branch Dry Mass
+Leaf.Thickness,:eaf Thickness
+Leaf.Density,Leaf Density
+C.N,CN
+C.P,CP
+N.P,NP
+Kl,KL
+Kleaf,Kleaf
+Biomass1,Biomass 1
+pcent.max.Bio1,Percentage Maximum of Biomass 1
+Total.Transmitted.Light,Total Transmitted Light
+d15N_imp,d15N
+t.b2_imp,TB2
+Ks_imp,KS
+Ktwig_imp,Ktwig
+Huber.Value_imp,Huber Value
+X.Lum_imp,Lump
+VD_imp,VD
+d13C_imp,d13C
+Biomass5_imp,Biomass 5
+pcent.max.Bio5_imp,Percentage Biomass 5
+Symmetric.Competition_imp,Symmetric Competition
+Soil.Humidity_imp,Soil Humidity
+pH_imp,pH
+Organic.C_imp,Organic Carbon
+N_imp,Nitrogen
+P_imp,Phosphorus
+K_imp,Postassium
+Ca_imp,Calcium
+Mg_imp,Magnesium
+X.Canopy.Opening_imp,Canopy Opening
+Tree.Height_imp,Tree Height
+julian.date.2011_imp,Julian Date in 2011
+SRL_imp,SRL
+Root.Wood.Density_imp,Root Wood Density
+Twig.branching.angle_imp,Twig Branching Angle
+Leaf.Density_imp,Leaf Density
+C.N_imp,CN
+C.P_imp,CP
+N.P_imp,NP

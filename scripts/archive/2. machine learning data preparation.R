@@ -9,6 +9,7 @@ library(corrplot)
 library(RColorBrewer)
 library(data.table)
 library(vegan)
+library(dplyr)
 ######################################################################################################
 ######################################################################################################
 
@@ -16,7 +17,7 @@ library(vegan)
 # Which metrics should we remove? within each metric category, we want to keep correlations below 0.7 # 
 # import data#
 rgr.msh.raw <- data.frame(read.csv( "data/RGR_MSH.csv"))[,-1]
-
+rownames(rgr.msh.raw) <- seq(1,3000,5)[1:nrow(rgr.msh.raw)]
 ######################################################################################################
 ######################################################################################################
 # prepare data for correlation analyses
@@ -37,11 +38,16 @@ missing.response <- which(is.na(rgr.msh.raw$BIOSH_GR))
 rgr.msh <- rgr.msh.raw[-missing.response, ]
 missing.predictors <- unname(which((apply(rgr.msh, 2, anyNA))))
 rgr.msh <- rgr.msh[,-missing.predictors]
-rgr.msh <- data.frame(decostand(rgr.msh[,3:5], method = "max"),rgr.msh[,6:ncol(rgr.msh)])
+rgr.msh <- data.frame(rgr.msh[,3:72])
+removecolumns <- c("Tree.Height", "Tree.Age", "Tree.Height_imp", "Root.Wood.Density_imp",
+                   "Biomass5_imp", "pcent.max.Bio5_imp")
+remove_columns <- which(colnames(rgr.msh)%in%removecolumns)
 ######################################################################################################
 ######################################################################################################
 # randomly select 4000 wetlands per permenance class
 set.seed(145)
-rgr.msh.train <- sample_n(rgr.msh, round(nrow(rgr.msh)*0.7))
+train.test <- as.integer(as.character(sample(rownames(rgr.msh), round(nrow(rgr.msh)*0.7))))
+train.test<- which(rownames(rgr.msh)%in%train.test)
+rgr.msh.train <- rgr.msh[train.test,-remove_columns]
+rgr.msh.test <- rgr.msh[-train.test,-remove_columns]
 
-rgr.msh.test <- rgr.msh[-as.integer(as.character(rownames(rgr.msh.train))),]
