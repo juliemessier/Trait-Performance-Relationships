@@ -51,3 +51,6 @@ train.test<- which(rownames(rgr.msh)%in%train.test)
 rgr.msh.train <- rgr.msh[train.test,-remove_columns]
 rgr.msh.test <- rgr.msh[-train.test,-remove_columns]
 
+write.csv(rgr.msh.train,"data/rgr_msh_train.csv")
+write.csv(rgr.msh.test,"data/rgr_msh_test.csv")
+

@@ -9,8 +9,11 @@ require(ggrepel)
 extrafont::loadfonts(device="win")
 library(viridis)
 library(gridExtra)
+library(tidyr)
 ####################################################################################################
 ####################################################################################################
+rgr.msh.train <- read.csv("data/rgr_msh_train.csv")
+rgr.msh.test <- read.csv(rgr.msh.test,"data/rgr_msh_test.csv")
 
 # predictors - training
 rgr_xbg_dtrain_predictor <- as.matrix(rgr.msh.train[,6:ncol(rgr.msh.train)])
@@ -397,11 +400,12 @@ importance_matrix_biosh_merged <- importance_matrix_biosh_merged[order(importanc
 #######################################################################################################
 #######################################################################################################
 gain_colors <- inferno(3)
+xgboost_model_names <- c("Basal Area Increment","Biomass Increment", "Biomass Scaled to Height")
 # Plotting
 Plot.XGB.Gain.BAI <- 
   ggplot(importance_matrix_bai_merged[1:10,], aes(x = reorder(stringr::str_wrap(Label,20), Gain), y = Gain))+
   geom_bar(stat="identity", width = 0.75, fill = gain_colors[1], color = gain_colors[1])+
-  labs(title = "Basal Area Increment",
+  labs(title = xgboost_model_names[1],
        subtitle  = LETTERS[1])+ #title
   xlab(" ") +
   ylab("Gain\n")+
@@ -412,7 +416,7 @@ Plot.XGB.Gain.BAI <-
 Plot.XGB.Gain.BIOI <- 
   ggplot(importance_matrix_bioi_merged[1:10,], aes(x = reorder(stringr::str_wrap(Label,20), Gain), y = Gain))+
   geom_bar(stat="identity", width = 0.75, fill = gain_colors[2], color = gain_colors[2])+
-  labs(title = "Biomass Increment",
+  labs(title = xgboost_model_names[2],
        subtitle  = LETTERS[2])+ #title
   xlab(" ") +
   ylab("Gain\n")+
@@ -423,7 +427,7 @@ Plot.XGB.Gain.BIOI <-
 Plot.XGB.Gain.BIOSH <- 
   ggplot(importance_matrix_biosh_merged[1:10,], aes(x = reorder(stringr::str_wrap(Label,20), Gain), y = Gain))+
   geom_bar(stat="identity", width = 0.75, fill = gain_colors[3], color = gain_colors[3])+
-  labs(title = "Biomass Scaled to Height",
+  labs(title = xgboost_model_names[3],
        subtitle  = LETTERS[3])+ #title
   xlab(" ") +
   ylab("Gain\n")+
@@ -434,7 +438,49 @@ Plot.XGB.Gain.BIOSH <-
 
 ##########################################################################################################
 png("scripts/figures/gain_xgboost.png", 
-    width = 19 , height = 16, units = 'in', res = 600)
+    width = 19 , height = 15, units = 'in', res = 600)
 grid.arrange(grobs = list(Plot.XGB.Gain.BAI, Plot.XGB.Gain.BIOI, Plot.XGB.Gain.BIOSH),
              nrow = 3)
+dev.off()
+
+##########################################################################################################
+##########################################################################################################
+##########################################################################################################
+# neeed to compae error between models
+# but they must be scaled for comparision
+# i will standradise the errors by the data's standrad deveation
+
+# get the nth row, which has the model error
+bai_error_row <- nrow(bai_xbg_model_train$evaluation_log)
+bioi_error_row <- nrow(bioi_xbg_model_train$evaluation_log)
+biosh_error_row <- nrow(biosh_xbg_model_train$evaluation_log)
+
+# combine the rsme from each model and relativse by their sd
+nrsme_models <- (rbind(bai_xbg_model_train$evaluation_log[bai_error_row, ]/sd(rgr_xbg_dtrain_response_bai_gr),
+                      bioi_xbg_model_train$evaluation_log[bioi_error_row, ]/sd(rgr_xbg_dtrain_response_bioi_gr),
+                      biosh_xbg_model_train$evaluation_log[biosh_error_row, ]/sd(rgr_xbg_dtrain_response_biosh_gr)))[,2:3]
+                      
+# need as df, for ggpot
+# also, need to use numeric terms to call x/fill vairbales
+# to make sure the order is as expected
+nrsme_models <- data.frame(modelname = xgboost_model_names,
+                           modelnumber = 1:3,
+                           nrsme_models)
+nrsme_models <- gather(nrsme_models, key = "group", value = "value", 3:4)
+
+nrsme_models$groupno <- sort(as.integer(as.factor(nrsme_models$group)))
+
+NRSME.Plot <- 
+  ggplot(nrsme_models, aes(x = modelname, y = value, fill = as.factor(groupno)))+
+  geom_bar(stat="identity",position="dodge") +
+  scale_fill_manual(" ", values = gain_colors[1:2], labels = c("Train", "Test"))+
+  labs(title = "Normalised Root Mean Square Error", subtitle = " ",
+       x = " ",
+       y = " Error")+
+  theme_special()+
+  theme(legend.position = "bottom")
+
+png("scripts/figures/nrsme.png", 
+    width = 12 , height = 10, units = 'in', res = 600)
+plot(NRSME.Plot)
 dev.off()
