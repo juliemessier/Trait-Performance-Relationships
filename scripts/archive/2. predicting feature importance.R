@@ -12,11 +12,11 @@ library(gridExtra)
 library(tidyr)
 ####################################################################################################
 ####################################################################################################
-rgr.msh.train <- read.csv("data/rgr_msh_train.csv")
-rgr.msh.test <- read.csv(rgr.msh.test,"data/rgr_msh_test.csv")
+rgr.msh.train <- read.csv("data/rgr_msh_train.csv")[,-1]
+rgr.msh.test <- read.csv("data/rgr_msh_test.csv")[,-1]
 
 # predictors - training
-rgr_xbg_dtrain_predictor <- as.matrix(rgr.msh.train[,6:ncol(rgr.msh.train)])
+rgr_xbg_dtrain_predictor <- as.matrix(rgr.msh.train[,4:ncol(rgr.msh.train)])
 # repsonse - training basal growth rate
 rgr_xbg_dtrain_response_bai_gr <-  rgr.msh.train$BAI_GR
 # repsonse - training basal incriment growth rate
@@ -32,7 +32,7 @@ rgr_xbg_dtrain_biosh_gr <- xgb.DMatrix(data = rgr_xbg_dtrain_predictor,
                                      label = rgr_xbg_dtrain_response_biosh_gr)
 
 # repsonse - training
-rgr_xbg_dtest_predictor <- as.matrix(rgr.msh.test[,6:ncol(rgr.msh.test)])
+rgr_xbg_dtest_predictor <- as.matrix(rgr.msh.test[,4:ncol(rgr.msh.test)])
 # repsonse - testing basal growth rate
 rgr_xbg_dtest_response_bai_gr <-  rgr.msh.test$BAI_GR
 # repsonse - testing basal incriemnt growth rate
@@ -116,9 +116,9 @@ set.seed(100)
 xgb_bai_cv <- xgb.cv(
   data = rgr_xbg_dtrain_predictor,
   label = rgr_xbg_dtrain_response_bai_gr,
-  params = list(max_depth = 7, eta = 0.05, min_child_weigh = 1,
-                subsample = 0.65, colsample_bytree = 1,
-                verbose = 0, gamma = 15,
+  params = list(max_depth = 5, eta = 0.01, min_child_weigh = 1,
+                subsample = 0.65, colsample_bytree = 0.9,
+                verbose = 0, gamma = 20,
                 objective = "reg:squarederror"),# try changing gamma
   nrounds = 5000,
   verbose = 0,
@@ -135,7 +135,7 @@ ggplot(xgb_bai_cv$evaluation_log) +
 
 
 xgb_bai_cv$evaluation_log %>%
-  arrange(train_rsme_mean) %>%
+  arrange(train_rmse_mean) %>%
   head(10)
 # if the training cv is much larger than test, I need to increase gamma, from 0 
 # try starting at 10. If train/test cv is super close, then controlled way too much 
@@ -145,16 +145,16 @@ xgb_bai_cv$evaluation_log %>%
 ####################################################################################################
 ####################################################################################################
 
-param_bai <- list(max_depth = 7, eta = 0.05, min_child_weigh = 1,
-                  subsample = 0.65, colsample_bytree = 1,
-                  verbose = 0, gamma = 15,
+param_bai <- list(max_depth = 5, eta = 0.01, min_child_weigh = 1,
+                  subsample = 0.65, colsample_bytree = 0.9,
+                  verbose = 0, gamma = 20,
                   objective = "reg:squarederror")
 
 bai_xbg_model_train <- xgb.train(param_bai, rgr_xbg_dtrain_bai_gr,
                                        nrounds = 5000,
                                        early_stopping_rounds = 10,
                                        watchlist = bai_xbg_watchlist)
-# [63]	train-rmse:0.835824	eval-rmse:1.018252
+# [395]	train-rmse:0.847181	eval-rmse:1.094131
 ####################################################################################################
 ####################################################################################################
 ####################################################################################################
@@ -224,9 +224,9 @@ set.seed(100)
 xgb_bioi_cv <- xgb.cv(
   data = rgr_xbg_dtrain_predictor,
   label = rgr_xbg_dtrain_response_bioi_gr,
-  params = list(max_depth = 5, eta = 0.05, min_child_weigh = 1,
-                subsample = 0.65, colsample_bytree = 1,
-                verbose = 0, gamma = 20,
+  params = list(max_depth = 3, eta = 0.05, min_child_weigh = 1,
+                subsample = 0.65, colsample_bytree = 0.9,
+                verbose = 0, gamma = 8,
                 objective = "reg:squarederror"),# try changing gamma
   nrounds = 5000,
   verbose = 0,
@@ -239,7 +239,7 @@ xgb_bioi_cv <- xgb.cv(
 ggplot(xgb_bioi_cv$evaluation_log) +
   geom_line(aes(iter, train_rmse_mean), color = "red") +
   geom_line(aes(iter, test_rmse_mean), color = "blue")+
-  ylim(0,3)
+  ylim(0,1)
 
 
 xgb_bioi_cv$evaluation_log %>%
@@ -253,16 +253,17 @@ xgb_bioi_cv$evaluation_log %>%
 ####################################################################################################
 ####################################################################################################
 
-param_bioi <- list(max_depth = 5, eta = 0.05, min_child_weigh = 1,
-                   subsample = 0.65, colsample_bytree = 1,
-                   verbose = 0, gamma = 35,
+param_bioi <- list(max_depth = 3, eta = 0.05, min_child_weigh = 1,
+                   subsample = 0.65, colsample_bytree = 0.9,
+                   verbose = 0, gamma = 10,
                    objective = "reg:squarederror")
 
 bioi_xbg_model_train <- xgb.train(param_bioi, rgr_xbg_dtrain_bioi_gr,
                                   nrounds = 5000,
                                   early_stopping_rounds = 10,
                                   watchlist = bioi_xbg_watchlist)
-#[96]	train-rmse:1.283951	eval-rmse:2.420790
+#[119]	train-rmse:0.558644	eval-rmse:0.660045
+
 ####################################################################################################
 ####################################################################################################
 ####################################################################################################
@@ -327,9 +328,9 @@ set.seed(100)
 xgb_biosh_cv <- xgb.cv(
   data = rgr_xbg_dtrain_predictor,
   label = rgr_xbg_dtrain_response_biosh_gr,
-  params = list(max_depth = 5, eta = 0.1, min_child_weigh = 7,
-                subsample = 0.65, colsample_bytree = 1,
-                verbose = 0, gamma = 20,
+  params = list(max_depth = 5, eta = 0.05, min_child_weigh = 3,
+                subsample = 0.8, colsample_bytree = 0.9,
+                verbose = 0, gamma = 5,
                 objective = "reg:squarederror"),# try changing gamma
   nrounds = 5000,
   verbose = 0,
@@ -342,7 +343,7 @@ xgb_biosh_cv <- xgb.cv(
 ggplot(xgb_biosh_cv$evaluation_log) +
   geom_line(aes(iter, train_rmse_mean), color = "red") +
   geom_line(aes(iter, test_rmse_mean), color = "blue")+
-  ylim(0,1500)
+  ylim(0,1600)
 
 
 xgb_biosh_cv$evaluation_log %>%
@@ -356,16 +357,16 @@ xgb_biosh_cv$evaluation_log %>%
 ####################################################################################################
 ####################################################################################################
 
-param_biosh <- list(max_depth = 5, eta = 0.1, min_child_weigh = 7,
-                    subsample = 0.65, colsample_bytree = 1,
-                    verbose = 0, gamma = 25,
+param_biosh <- list(max_depth = 5, eta = 0.05, min_child_weigh = 3,
+                    subsample = 0.8, colsample_bytree = 0.9,
+                    verbose = 0, gamma = 20,
                     objective = "reg:squarederror")
 
 biosh_xbg_model_train <- xgb.train(param_biosh, rgr_xbg_dtrain_biosh_gr,
                                    nrounds = 5000,
                                    early_stopping_rounds = 10,
                                    watchlist = biosh_xbg_watchlist)
-#[34]	train-rmse:315.913177	eval-rmse:769.533813
+#[40]	train-rmse:278.951721	eval-rmse:763.087952
 
 ####################################################################################################
 ####################################################################################################
