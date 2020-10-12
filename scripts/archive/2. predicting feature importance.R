@@ -10,7 +10,85 @@ extrafont::loadfonts(device="win")
 library(viridis)
 library(gridExtra)
 library(tidyr)
+library(tidymodels)
 ####################################################################################################
+# Let's import the data needed for these analyses # 
+
+####################################################################################################
+# need a training and test set assess the performance of the classifier model
+# a 70:30 split is typically
+set.seed(634)
+split_train_test <-
+  initial_split(
+    data = dta, 
+    strata  = outcome,
+    prop = 0.70) 
+train_dta <- split_train_test %>% training() 
+test_dta  <- split_train_test %>% testing()
+
+
+# I will use recipe to prep both the training and test set
+# here, I will impute the variable r, based on the median value
+# I usually impute when fewer than 50% of the vairbales are missing
+rec <- recipe(outcome ~ ., 
+              data = train_dta)
+steps_rec <- 
+  rec %>%
+  step_medianimpute(r)%>%
+  step_dummy(group)
+
+prepped_recipe <- prep(steps_rec, 
+                       training = train_dta)
+dta_preprocessed <- bake(prepped_recipe, dta) 
+scoring_preprocessed <- bake(prepped_recipe, scoring) 
+dta_preprocessed_train <- bake(prepped_recipe, train_dta) 
+dta_preprocessed_test <- bake(prepped_recipe, test_dta) 
+
+
+dta_preprocessed %>%
+  ungroup()%>%
+  select(!(outcome:group_g)) %>%
+  correlate() %>%
+  # Re-arrange a correlation data frame 
+  # to group highly correlated variables closer together.
+  rearrange(method = "MDS", absolute = FALSE) %>%
+  shave() %>% 
+  rplot(shape = 19, colors = inferno(2))
+
+####################################################################################################
+# # first, we must tune the random forest model. i will use a 80:20 split.
+# as above, I will use recipe to prepare and tune the model
+# i will tune for the number of predictors that will be randomly pooled/available
+# for splitting at each node (mtry)
+# i will also tune min_n, which is minimum number of observation required to split a node further
+set.seed(345)
+val_set <- validation_split(dta_preprocessed_train, 
+                            strata = outcome, 
+                            prop = 0.80)
+cores <- parallel::detectCores()
+randomforest_recipe <- 
+  recipe(outcome ~ ., data = dta_preprocessed_train)
+
+
+randomforest_mod <- 
+  rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>% 
+  set_engine("ranger", num.threads = cores) %>% 
+  set_mode("classification")
+
+randomforest_workflow <- 
+  workflow() %>% 
+  add_model(randomforest_mod) %>% 
+  add_recipe(randomforest_recipe)
+
+randomforest_res <- 
+  randomforest_workflow %>% 
+  tune_grid(val_set,
+            grid = 10,
+            control = control_grid(save_pred = TRUE),
+            metrics = metric_set(roc_auc))
+
+randomforest_res %>% 
+  show_best(metric = "roc_auc")
 ####################################################################################################
 rgr.msh.train <- read.csv("data/rgr_msh_train.csv")[,-1]
 rgr.msh.test <- read.csv("data/rgr_msh_test.csv")[,-1]

@@ -21,8 +21,8 @@ X.Lum,Percent Lumen,1,
 VD,Vessel Diameter,1,
 X.Sapwood,Percent Sapwood,1,
 d13C,Delta13C ,1,In leaves - carbon isotope ratio - reflects Water Use Efficiency
-Biomass5,Biomass from 2006 to 2011,1,This is a response variable = g/cm averaged over the last 5 years of full growth (2007-2011 inclusively)
-pcent.max.Bio5,Percentage Maximum of Biomass5 per species,1,This is a response variable
+Biomass5,Biomass from 2006 to 2011,0,This is a response variable = g/cm averaged over the last 5 years of full growth (2007-2011 inclusively)
+pcent.max.Bio5,Percentage Maximum of Biomass5 per species,0,This is a response variable
 Symmetric.Competition,Symmetric Competition,2,These are environmental variables
 Asymmetric.Competition,Asymmetric Competition,2,
 Soil.Humidity,Soil Humidity,2,
@@ -46,7 +46,7 @@ SampleID,Sample Identification,0,
 Species,Species,0,covariate of interest
 Site,Site,0,covariate of interest
 Tree.Age,Tree Age,0,changed to 0 - covariate of interest
-Tree.Height,Tree Height,1,
+Tree.Height,Tree Height,0,
 julian.date.2011,Julian Date in 2011,2,This covariate is the date at which the leaf samples were collected - used to correct for phenological effects on traits
 Branch.Height,Branch Height,1,This covariate is the height at which my branch sample was taken from the tree. Not really a trait. Used to see if it affected d13C values because some papers say it will. But it didn't in my data
 SRL,Specific Root Length,1,

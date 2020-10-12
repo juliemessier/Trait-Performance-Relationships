@@ -1,0 +1,154 @@
+---
+title: "Data cleaning and exploration"
+author: "Jody Daniel"
+date: "`r Sys.Date()`"
+test: " `r getRversion()`"
+output:
+ markdowntemplates::skeleton:
+    highlight: tango
+    toc: TRUE
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE,  out.extra = " ")
+```
+
+# Traits and Plant Growth Rates
+We have two datasets: 1) basal area each year from 2006 to 2011 and 2) plant and environmental traits for each tree. Below, I aim to examine the data - assess data types, check for missingness, normality, outliers. Depending on the degree of missingness, I will impute the data as we would like to keep as many observations as possible.
+
+## Table of Contents
+* Initial Assessment
+* Imputation
+* Estimate Growth Rate
+* Conclusion
+
+``` {r message = FALSE}
+library(corrplot)
+library(fastDummies)
+library(RColorBrewer)
+library(factoextra)
+library(ggplot2)
+require(ggrepel)
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+library(dplyr)
+library(here)
+library(skimr)
+library(reshape2)
+library(tidymodels)
+library(qdapTools)
+library(rsample)
+library(corrr)
+library(broom)
+library(vegan)
+library(extrafont)
+library(viridis)
+library(car)
+library(mice)
+library(sjmisc)
+library(RVAideMemoire)
+source(here("scripts/archive/1. functions.R"))
+theme_set(theme_special())
+```
+
+
+##  Extracting Principle Components for Environmental Traits
+
+```{r }
+
+rgr_raw <- read.csv(here("data/RGR.csv"))
+msh_raw <- read.csv(here("data/MSH.csv"))
+
+```
+
+## Including Plots
+
+Might be best to just drop some the columns trait values with a large % of missing data.
+
+For the trait data, I will simply remove those with a majority of missing cases before running the imputation - I am thinking of using a cut of less than 50%.
+
+```{r}
+# removing cases with a bunch of zeroes
+MSH.50 <- msh_raw[,names(which(sapply(colnames(msh_raw), function (x) {sum(is.na(msh_raw[,x]))/nrow(msh_raw)<0.5})))]
+# I only want columns that are numeric
+numeric_columns_msh <- which(apply(MSH.50,2, function (x) !is.na(mean(as.numeric(x), na.rm = TRUE))))
+numeric_columns_rgr <- which(apply(rgr_raw,2, function (x) !is.na(mean(as.numeric(x), na.rm = TRUE))))
+# I read somewhere that p>5 does not change the overall values significantly So, I will stick to that number of datasets.
+MSH.IP.MICE <- mice(data.matrix(MSH.50[,numeric_columns_msh]), 
+               printFlag = FALSE, method = "pmm", m = 5, seed = 300)
+
+```
+Now, I will run the imputation on these data. Since I have removed the columns with a large amount of missing cases, the imputation should work. If not, I will set a more stringent condition.
+
+```{r}
+# fit a lm and see if results are comparable between mice output and raw data
+summary(lm(Tree.Height ~ Soil.Depth + Biomass1 + Soil.Humidity + pH, data = MSH.50))
+
+```
+The regression coefficients do vary slightly. But the direction and significance of these relationships are near the same.
+
+
+```{r }
+# how do the combined and imputed datasets compare?
+xyplot(MSH.IP.MICE, Soil.Depth ~ Soil.Humidity|.imp, pch = 20, cex = 1.4)
+xyplot(MSH.IP.MICE, Soil.Depth ~ pH|.imp, pch = 20, cex = 1.4)
+#The imputed data seems to match that of the raw data. Now, how do the combined imputed data compare to the 5 datatsets from the imputation.
+merge_imputations(msh_raw, MSH.IP.MICE, summary =  "dens")
+
+```
+
+There is strong overlap between the mean and merged values. As such, I can be confident that the merged data set is representative of individual imputations.
+
+```{r }
+library(abind)
+MSH.IP.List <- list()
+m_length <- MSH.IP.MICE$m
+for (i in 1:m_length){
+    MSH.IP.List[[i]] <- mice::complete(MSH.IP.MICE, action = i)}
+MSH.IP.Final <- data.frame(apply(abind(MSH.IP.List, along=3), c(1,2), mean))
+
+```
+
+# Estimate Growth Rate
+There are three metrics we can use to measure growth rates. They are:
+* Basal Area Relative Growth Rate 
+* Biomass Relative Growth Rate
+
+```{r}
+# makes more sense to name the rows by their sample ID as a unique identifier
+MSH.IP.Final$SampleID <- rgr_raw[,1]
+
+MSH.RGR_IMP <- merge(rgr_raw,MSH.IP.Final, by = "SampleID")
+MSH.RGR <- merge(rgr_raw,MSH.50, by = "SampleID")
+# now for growth rate parameters
+BAI_GR <- with(data = MSH.RGR_IMP, exp = ((BA.0.2011 - BA.0.2006)/5))
+BIO_Gain <- with(data = MSH.RGR_IMP,
+    exp = ((BA.0.2011*Stem.Wood.Density*Tree.Height*3)-(BA.0.2006*Stem.Wood.Density*(Tree.Height/Tree.Age*(Tree.Age-6))*3)))
+BIO_2006 <- with(data = MSH.RGR_IMP, 
+                 exp = (BA.0.2006*Stem.Wood.Density*(Tree.Height/Tree.Age*(Tree.Age-6))*3))
+BIO_GR <- BIO_Gain/((BIO_2006+1)*5)
+# wanna place species and site at the start of the data frame
+site_species <- c("SampleID", "Site", "Species", "Porosity")
+site_species_no <- which(colnames(MSH.50)%in%site_species)
+site_BA <- c(colnames(rgr_raw)[-1], "SampleID")
+site_BA_no <- which(colnames(MSH.RGR_IMP)%in%site_BA)
+
+RGR_MSH_Final <- data.frame(MSH.50[,site_species_no], BAI_GR = BAI_GR,
+                           BIO_GR = BIO_GR,
+                           MSH.RGR_IMP[,-site_BA_no])
+
+# now for growth rate parameters
+BAI_GR_NA <- with(data = MSH.RGR, exp = ((BA.0.2011 - BA.0.2006)/5))
+BIO_Gain_NA <- with(data = MSH.RGR, exp = ((BA.0.2011*Stem.Wood.Density*Tree.Height*3) - (BA.0.2006*Stem.Wood.Density*(Tree.Height/Tree.Age*(Tree.Age-6))*3)))
+BIO_2006_NA <- with(data = MSH.RGR, exp = (BA.0.2006*Stem.Wood.Density*(Tree.Height/Tree.Age*(Tree.Age-6))*3))
+BIO_GR_NA <- BIO_Gain_NA/((BIO_2006_NA+1)*5)
+
+RGR_MSH_NA_Final <- data.frame(MSH.50[,site_species_no], BAI_GR = BAI_GR_NA,
+                           BIO_GR = BIO_Gain_NA,
+                           MSH.50[,numeric_columns_msh])
+
+
+write_csv(RGR_MSH_Final,here("data/RGR_MSH.csv"))
+write_csv(RGR_MSH_NA_Final,here("data/RGR_MSH_NA.csv"))
+```
+
