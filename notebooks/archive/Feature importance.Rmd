@@ -28,6 +28,7 @@ Before building the GLM, we need to pre-determine which of the traits are most i
 4. Compare performance across the 3 growth rate measures
 
 ``` {r message = FALSE}
+library(vip)
 library(knitr)
 library(kableExtra)
 library(tidyverse)
@@ -176,7 +177,7 @@ randomforest_res_bio %>%
 
 
 ```{r message = FALSE}
-library(vip)
+
 random_forest_regressor_bai <-
   rand_forest(mtry = 28, min_n = 4, trees = 1000) %>% 
   set_engine("ranger", num.threads = cores, importance = "impurity") %>% 
@@ -194,4 +195,18 @@ random_forest_regressor_bai%>%
 
 random_forest_regressor_bio%>%
   vip(geom = "point")
+
+
+```
+```{r echo=FALSE}
+
+png(here("notebooks/figures/BAI_RF.png"), width = 10 , height = 5, units = 'in', res = 600)
+random_forest_regressor_bai%>%
+  vip(geom = "point")
+dev.off()
+
+png(here("notebooks/figures/BIO_RF.png"),  width = 10 , height = 5, units = 'in', res = 600)
+random_forest_regressor_bio%>%
+  vip(geom = "point")
+dev.off()
 ```
