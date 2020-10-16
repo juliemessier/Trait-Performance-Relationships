@@ -48,7 +48,7 @@ Site,Site,0,covariate of interest
 Tree.Age,Tree Age,0,changed to 0 - covariate of interest
 Tree.Height,Tree Height,0,
 julian.date.2011,Julian Date in 2011,2,This covariate is the date at which the leaf samples were collected - used to correct for phenological effects on traits
-Branch.Height,Branch Height,1,This covariate is the height at which my branch sample was taken from the tree. Not really a trait. Used to see if it affected d13C values because some papers say it will. But it didn't in my data
+Branch.Height,Branch Height,0,This covariate is the height at which my branch sample was taken from the tree. Not really a trait. Used to see if it affected d13C values because some papers say it will. But it didn't in my data
 SRL,Specific Root Length,1,
 Root.Wood.Density,Root Wood Density,1,
 Twig.branching.angle,Twig Branching Angle,1,

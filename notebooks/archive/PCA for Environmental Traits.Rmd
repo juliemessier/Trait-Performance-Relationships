@@ -262,30 +262,13 @@ TW_G_Plot <- TW_G_Plot[,1:6]
 colnames(TW_G_Plot) <- pca_env
 
 # which rows are ommitted from the PCA because there are NAs?
-which.g <- which(rgr_msh_na_raw$SampleID%in%na.omit(rgr_msh_na_raw[,c(1,environ_name)])$SampleID)
-TW_G_Plot_NA$SampleID <- rgr_msh_na_raw$SampleID[which.g]
-RGR_MSH_NA_PCA<- merge(rgr_msh_na_raw, TW_G_Plot_NA, by = "SampleID")
+rgr_msh_na_raw_pca <- na.omit(rgr_msh_na_raw[,c(1, environ_name)])
+which.g <- which(rgr_msh_na_raw$SampleID%in%rgr_msh_na_raw_pca$SampleID)
 RGR_MSH_PCA <- data.frame(rgr_msh_raw[,-environ_name], TW_G_Plot)
+RGR_MSH_NA_PCA <- data.frame(rgr_msh_na_raw[which.g,-environ_name], TW_G_Plot_NA)
 ```
 
 
-
-```{r }
-# now for correlation assessments, but need to rename PCs based on what they represent
-TW_G_Plot_NA <- TW_G_Plot_NA[,1:6]
-pca_env <- c( "Soil.Fertility", "Light", "Temperature",   "pH", "Soil.Humidity.Depth ", "Slope")
-colnames(TW_G_Plot_NA) <- pca_env
-
-TW_G_Plot <- TW_G_Plot[,1:6]
-colnames(TW_G_Plot) <- pca_env
-
-# which rows are ommitted from the PCA because there are NAs?
-which.g <- which(rgr_msh_na_raw$SampleID%in%na.omit(rgr_msh_na_raw[,c(1,environ_name)])$SampleID)
-TW_G_Plot_NA$SampleID <- rgr_msh_na_raw$SampleID[which.g]
-RGR_MSH_NA_PCA<- merge(rgr_msh_na_raw, TW_G_Plot_NA, by = "SampleID")
-RGR_MSH_PCA <- data.frame(rgr_msh_raw[,-environ_name], TW_G_Plot)
-
-```
 ## Correlation on Plant Traits
 I want to ensure that the plant traits are not correlated. Julie said that past work suggests that they are not easily represented using a PCA. So, I will not use the this feature reduction method. 
 ```{r message=FALSE}

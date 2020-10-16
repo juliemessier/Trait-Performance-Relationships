@@ -46,6 +46,7 @@ library(viridis)
 library(car)
 library(mice)
 library(sjmisc)
+library(skimr)
 library(RVAideMemoire)
 source(here("scripts/archive/1. functions.R"))
 theme_set(theme_special())
@@ -58,7 +59,8 @@ theme_set(theme_special())
 
 rgr_raw <- read.csv(here("data/RGR.csv"))
 msh_raw <- read.csv(here("data/MSH.csv"))
-
+skim(rgr_raw)
+skim(msh_raw)
 ```
 
 ## Including Plots
@@ -70,6 +72,7 @@ For the trait data, I will simply remove those with a majority of missing cases 
 ```{r}
 # removing cases with a bunch of zeroes
 MSH.50 <- msh_raw[,names(which(sapply(colnames(msh_raw), function (x) {sum(is.na(msh_raw[,x]))/nrow(msh_raw)<0.5})))]
+MSH.5 <- msh_raw[,names(which(sapply(colnames(msh_raw), function (x) {sum(is.na(msh_raw[,x]))/nrow(msh_raw)<0.05})))]
 # I only want columns that are numeric
 numeric_columns_msh <- which(apply(MSH.50,2, function (x) !is.na(mean(as.numeric(x), na.rm = TRUE))))
 numeric_columns_rgr <- which(apply(rgr_raw,2, function (x) !is.na(mean(as.numeric(x), na.rm = TRUE))))
@@ -82,7 +85,10 @@ Now, I will run the imputation on these data. Since I have removed the columns w
 
 ```{r}
 # fit a lm and see if results are comparable between mice output and raw data
-summary(lm(Tree.Height ~ Soil.Depth + Biomass1 + Soil.Humidity + pH, data = MSH.50))
+summary(with(data = MSH.IP.Final, exp = lm(Tree.Height ~ Soil.Depth + Biomass1 + Huber.Value  + pH)))
+
+# fit a lm and see if results are comparable between mice output and raw data
+summary(lm(Tree.Height ~ Soil.Depth + Biomass1 + Huber.Value + pH, data = msh_raw))
 
 ```
 The regression coefficients do vary slightly. But the direction and significance of these relationships are near the same.
