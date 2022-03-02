@@ -1,0 +1,272 @@
+---
+title: "Building a generalized linear model that explains basal growth rate is influenced by traits"
+author: "Jody Daniel"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    highlight: tango
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE,  out.extra = " ")
+
+library(MuMIn)
+library(tidyverse)
+library(here)
+library(skimr)
+source(here("scripts/1. functions.R"))
+library(ggthemes)
+library(caret)
+```
+
+## Background
+
+We plan to build a general linear model that predicts tree growth rate. But, we have lots of traits as predictors - environmental and physical. Previously, we built a random forest model that is an attempt ascertain which traits  are of greatest importance. Following, we used extracted the residuals of a model evaluating the influence of sampling date on traits - this was to remove the influence of sampling date. This can change the model's predictions on which traits are of greatest importance, and so I think it is best to re-run the random forest model with these new data - of course using basal growth rate.
+
+
+### Preparing Data for Dredge
+
+Assuming that the first 10000 rows describes the data well, I can use col_types = cols(). If not, I will need to specify the class of each column.
+
+```{r message = FALSE}
+# prior error suggests that there are single quotation marks used to parse numbers
+# I specify that we should read those as a thousand separator
+rgr_msh_residuals_julian_df <- read_csv(here("data/rgr_msh_residuals_julian_df.csv"),
+                        guess_max = 10000,
+                        col_types = cols())
+# need a training and test set assess the performance of the model
+# a 70:30 split is typical
+# first, I will work with the imputed data
+set.seed(634)
+split_train_test <-
+  initial_split(
+    data = rgr_msh_residuals_julian_df, 
+    prop = 0.80) 
+
+rgr_msh_na <-
+  split_train_test %>% training() %>% mutate(Group = "Train")%>%
+  bind_rows(split_train_test %>% testing() %>% mutate(Group = "Test"))
+```
+
+Now, we create a new dataframe that has no NAs and only has the variables we need for the model.
+
+
+```{r error=FALSE, message=FALSE}
+# select the data we need for the dredge
+DredgeData <- rgr_msh_na %>% 
+            select(all_of((c("BAI_GR",MainEffectsDredge)))) %>% drop_na()
+#colnames(DredgeData) <- str_replace_all(colnames(DredgeData), "[[:punct:]]", "")
+skim(DredgeData)
+
+
+```
+
+```{r error=FALSE, message=FALSE}
+# select the data we need for the dredge
+DredgeDataBIO <- rgr_msh_na %>% 
+            select(all_of((c("BIO_GR",MainEffectsDredgeBIO)))) %>% drop_na()
+#colnames(DredgeData) <- str_replace_all(colnames(DredgeData), "[[:punct:]]", "")
+skim(DredgeDataBIO)
+
+
+```
+
+
+
+# Dredge
+
+Because the model will not converge if we speficy too many vairbles, we are only seelcting interactions with a value>0.2 from the GBM and the top 10 metrics from the GBM. 
+
+
+## BAI
+
+```{r eval=FALSE}
+options(na.action = "na.fail")
+
+# first, specify dredge model
+DredgeModelFormula <- 
+  paste(
+  "BAI_GR", 
+  "~", 
+  paste(c(MainEffectsDredge), collapse = " + "))
+
+# build the lm model first
+fm1 <- lm(DredgeModelFormula,
+          data = DredgeData)
+
+# now, we can apply dredge
+dd <- dredge(fm1)
+```
+
+
+If were were interested in seeing models with spefici interactions, this is how we would speficy them below. 
+
+```{r eval=FALSE}
+# to subset models by a spefici interaction
+subset(dd, `Drought.Tolerance:Temperature`)
+#subset(dd, `Drought.Tolerance:LNC`, `Drought.Tolerance:Temperature`, `Drought.Tolerance:VD`)
+```
+
+Otherwise, we should select models with a delta AICc<2, these models are not diffferent
+
+```{r error = FALSE, message=FALSE}
+# Model average models with delta AICc < 2
+model.avg(dd, subset = delta < 1.9)
+```
+
+Now, if we averaged these models (8 of them), how would they compare?
+
+```{r error = FALSE, message=FALSE}
+
+summary(model.avg(dd, subset = delta < 1.9))
+```
+
+
+
+```{r}
+do.call(rbind,
+        map(.x = 1:length(get.models(dd, subset = delta < 1.9)), ~{
+          
+          varImp(get.models(dd, subset = delta < 1.9)[[.x]]) %>%
+            rownames_to_column(var = "Feature")%>%
+            mutate(Class = case_when(Feature == "Light:Root.Wood.Density" ~ "Interaction",
+                           Feature %in% EnvironmentalVariablesKeep ~ "Environmental Condition",
+                           Feature %in% PlantTraitsKeep ~ "Plant Trait",
+                           TRUE ~ "Tree Age"))
+        }))%>%
+  mutate(Feature = str_replace_all(Feature, "[[:punct:]]", " "))%>%
+  group_by(Feature, Class) %>%
+  ggplot(aes(x = Feature, y = Overall, color = Class))+
+  stat_summary(fun.data = "mean_cl_boot")+
+  stat_summary(fun.data = "mean_se", geom = "errorbar") +
+    geom_point() +
+   theme_tufte()+
+  labs(x = " ", y = "Relative Importance", color = " ")+
+  theme(axis.text.x = element_text(hjust = 1, angle = 45),
+        legend.position = "bottom") +
+  theme(axis.line = element_line(color = 'black'))
+
+
+
+```
+
+
+```{r}
+do.call(rbind,
+        map(.x = 1:length(get.models(dd, subset = delta < 1.9)), ~{
+  
+  varImp(get.models(dd, subset = delta < 2)[[.x]]) %>%
+  rownames_to_column(var = "Feature")%>%
+  mutate(Class = case_when(Feature == "Light:Root.Wood.Density" ~ "Interaction",
+                           Feature %in% EnvironmentalVariablesKeep ~ "Environmental Condition",
+                           Feature %in% PlantTraitsKeep ~ "Plant Trait",
+                           TRUE ~ "Tree Age")) %>%
+  group_by(Class) %>%
+  summarise(`Relative Influence` = sum(Overall))%>%
+  mutate(Proportion = round(`Relative Influence`/sum(`Relative Influence`)*100),
+         Model = .x)
+  
+})) %>%
+  group_by(Class) %>%
+  summarise(Proportion = sum(`Relative Influence`))%>%
+  mutate(Proportion = round(Proportion/sum(Proportion)*100))
+
+
+```
+
+
+## BIO
+
+```{r eval=FALSE}
+options(na.action = "na.fail")
+
+# first, specify dredge model
+DredgeModelFormulaBIO <- 
+  paste(
+  "BIO_GR", 
+  "~", 
+  paste(c(MainEffectsDredgeBIO, InteractionsDredgeBIO), collapse = " + "))
+
+# build the lm model first
+fm1bio <- lm(DredgeModelFormulaBIO,
+          data = DredgeDataBIO)
+
+# now, we can apply dredge
+ddbio <- dredge(fm1bio)
+```
+
+
+If were were interested in seeing models with spefici interactions, this is how we would speficy them below. 
+
+```{r eval=FALSE}
+# to subset models by a spefici interaction
+subset(ddbio, `Drought.Tolerance:Temperature`)
+#subset(dd, `Drought.Tolerance:LNC`, `Drought.Tolerance:Temperature`, `Drought.Tolerance:VD`)
+```
+
+Otherwise, we should select models with a delta AICc<2, these models are not diffferent
+
+```{r error = FALSE, message=FALSE}
+# Model average models with delta AICc < 2
+model.avg(ddbio, subset = delta < 1.9)
+```
+
+
+```{r error = FALSE, message=FALSE}
+
+summary(model.avg(ddbio, subset = delta < 1.9))
+```
+
+
+```{r}
+do.call(rbind,
+        map(.x = 1:length(get.models(ddbio, subset = delta < 1.9)), ~{
+          
+          varImp(get.models(ddbio, subset = delta < 1.9)[[.x]]) %>%
+            rownames_to_column(var = "Feature")%>%
+            mutate(Class = case_when(Feature == "LNC:Tree.Age" ~ "Tree Age",
+                           Feature %in% EnvironmentalVariablesKeep ~ "Environmental Condition",
+                           Feature %in% PlantTraitsKeep ~ "Plant Trait",
+                           TRUE ~ "Tree Age"))
+        }))%>%
+  mutate(Feature = str_replace_all(Feature, "[[:punct:]]", " "))%>%
+  group_by(Feature, Class) %>%
+  ggplot(aes(x = Feature, y = Overall, color = Class))+
+  stat_summary(fun.data = "mean_cl_boot")+
+  stat_summary(fun.data = "mean_se", geom = "errorbar") +
+    geom_point() +
+   theme_tufte()+
+  labs(x = " ", y = "Relative Importance", color = " ")+
+  theme(axis.text.x = element_text(hjust = 1, angle = 45),
+        legend.position = "bottom") +
+  theme(axis.line = element_line(color = 'black'))
+
+
+
+```
+
+
+```{r}
+do.call(rbind,
+        map(.x = 1:length(get.models(ddbio, subset = delta < 1.9)), ~{
+  
+  varImp(get.models(ddbio, subset = delta < 2)[[.x]]) %>%
+  rownames_to_column(var = "Feature")%>%
+  mutate(Class = case_when(Feature == "LNC:Tree.Age" ~ "Tree Age",
+                           Feature %in% EnvironmentalVariablesKeep ~ "Environmental Condition",
+                           Feature %in% PlantTraitsKeep ~ "Plant Trait",
+                           TRUE ~ "Tree Age")) %>%
+  group_by(Class) %>%
+  summarise(`Relative Influence` = sum(Overall))%>%
+  mutate(Proportion = round(`Relative Influence`/sum(`Relative Influence`)*100),
+         Model = .x)
+  
+})) %>%
+  group_by(Class) %>%
+  summarise(Proportion = sum(`Relative Influence`))%>%
+  mutate(Proportion = round(Proportion/sum(Proportion)*100))
+
+
+```

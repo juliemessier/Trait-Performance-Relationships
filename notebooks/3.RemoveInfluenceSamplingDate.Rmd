@@ -1,0 +1,122 @@
+---
+title: "Is there an influence of sampling date?"
+author: "Jody Daniel"
+date: "`r Sys.Date()`"
+test: " `r getRversion()`"
+output: 
+   html_document:
+    theme: paper 
+    toc: TRUE
+    highlight: tango
+    number_sections: 2
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE,  out.extra = " ")
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+library(dplyr)
+library(here)
+library(skimr)
+library(extrafont)
+source(here("scripts/1. functions.R"))
+library(ggthemes)
+theme_set(theme_tufte())
+```
+
+# Background
+
+Some of the trait data may be affected by the date in which they were sampled. In building the final gbm, we want to ensure that there is not an un accounted for influence of sampling date on traits. To deal with this confounding factor, we will run a linear regression and use the residuals, versus the raw data, to build the final gbm. To do this, I will use the lapply function to run a linear regression on each trait, then pull out the p-value for each model. Models where there are a significant influence of sampling date, I will export the residuals. 
+
+
+# Explore Data
+
+The first thing we can do is import the data and append sampling date. The sampling date is missing from the data exported from the PCA.
+
+``` {r message = FALSE, error = FALSE, echo= FALSE}
+
+rgr_msh_julian <- read_csv(here("data/RGR_MSH_PCA_NA.csv"),
+                        guess_max = 10000,
+                        col_types = cols()) %>% relocate(c(BAI_GR, BIO_GR), .before = Species)
+# now, let's remove columns that are either too correlated are would not be useful
+labels_rgr_msh <- read_csv(here("data/labels.csv"),
+                        guess_max = 10000,
+                        col_types = cols())
+
+# which traits are environmental versus plants?
+
+EnvironmentalVariablesKeep <- labels_rgr_msh %>% filter(Class == 2) %>% select(Feature) %>% reduce(c)
+PlantTraitsKeep <- labels_rgr_msh %>% filter(Class == 1) %>% select(Feature) %>% reduce(c)
+OthersKeep <- labels_rgr_msh %>% filter(Class%in% c(3, 4, 5,7) )%>% select(Feature) %>% reduce(c) 
+OthersKeep <- c("SampleID", "Site", "Species", "julian.date.2011", 
+                OthersKeep[!OthersKeep%in% c("SampleID", "Site", "Species", "julian.date.2011")])
+
+EnvironmentalVariablesKeepNew <- c( "Soil.Fertility", "Light", "Temperature",  
+                                    "pH", "Soil.Humidity.Depth ", "Slope")
+skim(rgr_msh_julian)
+```
+
+
+# Test for influence of sample date
+
+Now, we can run the linear regression that is really to remove the influence of sampling date, when there is one. 
+
+
+
+``` {r message = FALSE}
+# not all columns are numeric/should be included in this analyses
+col_traits <- rgr_msh_julian %>% 
+                        select(any_of(c(PlantTraitsKeep,EnvironmentalVariablesKeepNew))) %>% colnames()
+# need to determine which of the columns are influenced by sampling dates
+p_value_julian <- unname(unlist(lapply(col_traits, function(x){
+  julian.date <-  unname(unlist(rgr_msh_julian[ , "julian.date.2011"]))
+  y.julian.date <- rgr_msh_julian %>% 
+                        select(!!sym(x)) %>% reduce(c)
+  p_value_julian <- summary(lm(y.julian.date ~ julian.date))$coefficients[,4][2]
+})))
+# add the column names to make this listing make more sense
+names(p_value_julian) <- col_traits
+# now, let's see which columns I need to extract residuals for
+p_value_julian_names <- names(which(p_value_julian<0.05))
+p_value_julian_which <- which(colnames(rgr_msh_julian)%in%p_value_julian_names) # need the column numbers for future work
+p_value_julian_names # these are the columns where traits are significantly affected by sampling dates
+
+```
+
+# Examine data after extracting residuals
+
+Let's extract the residuals for each of these columns and replace these values in the dataset
+
+
+``` {r message = FALSE, echo = FALSE, message = FALSE}
+# need to determine which of the columns are influenced by sampling dates
+residuals_julian <- lapply(p_value_julian_names, function(x){
+  julian.date <-  unname(unlist(rgr_msh_julian[ , "julian.date.2011"]))
+  y.julian.date <- rgr_msh_julian %>% 
+                        select(!!sym(x)) %>% reduce(c)
+  residuals_julian <- lm(y.julian.date ~ julian.date)$residuals
+  newvalue <- ifelse(is.na(y.julian.date), NA_real_, residuals_julian)
+})
+
+names(residuals_julian) <- p_value_julian_names
+
+rgr_msh_residuals_matrix <-
+  data.frame(SampleID = rgr_msh_julian$SampleID, do.call(cbind,residuals_julian))
+
+rgr_msh_residuals_julian_df <-
+  data.frame(rgr_msh_julian %>% select(!any_of(p_value_julian_names))) %>%
+  merge(rgr_msh_residuals_matrix)
+
+
+skim(rgr_msh_residuals_julian_df)
+# skim(rgr_msh_residuals_julian_df) - for markdown visualization
+
+# now, we can export these data 
+write_csv(rgr_msh_residuals_julian_df, here("data/rgr_msh_residuals_julian_df.csv"))
+```
+
+We are ready! Now, we can build the gbm.
+
+

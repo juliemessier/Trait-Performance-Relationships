@@ -1,0 +1,1595 @@
+---
+title: "Final screening of traits after removing the influence of sampling date"
+author: "Jody Daniel"
+date: "`r Sys.Date()`"
+output: 
+   html_document:
+    theme: paper 
+    toc: TRUE
+    highlight: tango
+    number_sections: 2
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE,  out.extra = " ")
+library(vip)
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+library(dplyr)
+library(here)
+library(skimr)
+library(reshape2)
+library(tidymodels)
+library(qdapTools)
+library(rsample)
+library(corrr)
+library(broom)
+library(extrafont)
+library(viridis)
+library(car)
+library(gbm)
+library(jcolors)
+library(ggthemes)
+source(here("scripts/1. functions.R"))
+source(here("scripts/2. gbm_h2o_tune.R"))
+theme_set(theme_tufte())
+```
+
+# Background
+
+We hope to explore the relative influence of physical traits, environmental conditions and species identity on the growth rate of trees. We have two measures of growth rate - basal area and biomass. A gradient boosted model seems like a good candidate for this work since they:
+
+* Can effectively model interactions, without the modeler specifying them
+* Do not drop rows with NAs - these rows are put into their own node (i.e., na.action = na.pass)
+* Can effectively model non-linear relationships - these are quite likely in the relationship between growth rate and the predictors. The GBM can help us understand them, but it can also model them.
+
+## About Gradient Boosted Models
+
+A gradient boosted machine/model is a machine learning model that uses decision trees to fit the data.
+
+A decision tree first starts with all of the observations, then, from the variables provided, it tries to figure out which variable split would result in the "purest" groupings of the data. So, in this case, it would try to place rows with higher growth rates in one node, and those with lower growth rates in another node. 
+
+GBMs are an ensemble of decision trees, nut they are fit sequentially. We call GBMs an ensemble of weak learners as each subsequent tree is an attempt to correct the errors of the previous tree. Thus, while one tree, by itself, can not describe the relationships, with the use of all the trees, we can. Below is a figure by Bradly Bohemke that attempts to illustrate how each subsequent tree improvs the fit on the data.
+
+## Changes made to raw data
+
+Below is a list of the changes made to the raw data:
+
+* Environental varibles - these are the princple compoeets (1-5) from a PCA that was fit on all the enevirobental vairbles. We visialsed the PCA and used the ageinvectors to help figure which envonntal conditn best explained that PC. There were 5 - `Soil Fertility, Light, Temperature,  pH, Soil.Humidity.Depth, and Slope`. 
+* Remove the influence of sampling date - some of the vairbles vary with when they were measured. Assuing a linear relationship between sample date and the vairbles, we extracted the residieal from a `lm` model with Variable ~ Sample date when the pvalue<0.05. This realuted in changes for the following vairbles - `Estem, Branching Distance, Stem Wood Density,  LMA, LNC, d15N, Ks, X.Sapwood, d13C, Soil.Fertility, Light, Temperature, pH`  
+
+
+# Data Preparation
+
+Assuming that the first 10000 rows describes the data well, I can use col_types = cols(). If not, I will need to specify the class of each column.
+```{r error = FALSE, message=FALSE}
+# prior error suggests that there are single quotation marks used to parse numbers
+# I specify that we should read those as a thousand separator
+rgr_msh_residuals_julian_df <- read_csv(here("data/rgr_msh_residuals_julian_df.csv"),
+                        guess_max = 10000,
+                        col_types = cols())
+# these are the labels for the variables - needed for plotting
+labels_rgr_msh <- read_csv(here("data/labels.csv"),
+                        guess_max = 10000,
+                        col_types = cols())
+# this helps in listing the variables we actually need to keep, depending on the analyses
+PlantTraitsKeep <- labels_rgr_msh %>% filter(Class == 1) %>% select(Feature) %>% reduce(c)
+EnvironmentalVariablesKeep <- c( "Soil.Fertility", "Light", "Temperature",  
+                                    "pH", "Soil.Humidity.Depth ", "Slope")
+OthersKeep <- labels_rgr_msh %>% filter(Class%in% c(3,4, 5,7) )%>% select(Feature) %>% reduce(c) 
+OthersKeep <- c("SampleID", "Site", "Species", "julian.date.2011", 
+                OthersKeep[!OthersKeep%in% c("SampleID", "Site", "Species", "julian.date.2011")])
+```
+
+
+Now, we can create the training and test set - 70:30 is default, usually.
+
+``` {r error = FALSE, message=FALSE}
+# need a training and test set assess the performance of the model
+# a 70:30 split is typical
+# first, I will work with the imputed data
+set.seed(634)
+split_train_test <-
+  initial_split(
+    data = rgr_msh_residuals_julian_df, 
+    prop = 0.70) 
+
+rgr_msh_na <-
+  split_train_test %>% training() %>% mutate(Group = "Train")%>%
+  bind_rows(split_train_test %>% testing() %>% mutate(Group = "Test"))
+
+```
+
+
+
+```{r include=FALSE, eval=FALSE}
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Tree.Age", "BAI_GR"))),
+          here("data/RGRH20NoDateBAI.csv"))
+
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Tree.Age", "BIO_GR"))),
+          here("data/RGRH20NoDateBIO.csv"))
+```
+
+# Gradient Boosted Models
+
+## BIO ~ PlantTraits + TreeAge + EnvironmentalVariables{.tabset}
+
+### Tune Model
+
+```{r eval=FALSE}
+# training the model using H20 - made a function that allows us to do this
+# takes ~ 5 minutes
+startTime <- Sys.time()
+gbmParmBIONoDate <-
+  h20_gbm_tune(path = here("data/RGRH20NoDateBIO.csv"),
+             status = "BIO_GR",
+             type = "integer")
+endTime <- Sys.time()
+endTime-startTime
+
+```
+
+### Model Parameters
+
+First, we look at the best parameters from tuning. 
+
+```{r echo=FALSE}
+gbmParmBIONoDate
+
+```
+
+### Build Model
+
+Now, we can build the model.
+
+```{r eval=FALSE}
+set.seed(123)
+gbm_regressor_bio_residuals <-
+  gbm(BIO_GR ~ .,
+      data = 
+        rgr_msh_na %>% filter(Group == "Train")%>% filter(!is.na(BIO_GR))%>%
+        select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Tree.Age", "BIO_GR"))),
+      n.trees = 1000,
+      interaction.depth = 6, # max depth
+      shrinkage = 0.05, #learning rate
+      n.minobsinnode = 17, #col_sample_rate 
+      bag.fraction = 0.54, # sample_rate,
+      verbose = FALSE,
+      n.cores = NULL,
+      cv.folds = 5)
+
+
+```
+
+
+### Relative Importance
+
+First, we look at the importance of variables in the model. 
+
+
+```{r echo=FALSE, message=FALSE}
+
+summary(gbm_regressor_bio_residuals, plotit = FALSE)%>%
+  mutate(Feature = var,
+         Importance = rel.inf,
+         Class = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Feature %in% PlantTraitsKeep ~ "Plant Traits",
+                           Feature %in% "Tree.Age" ~ "Tree Age",
+                           TRUE ~ "Environmental Conditions")) %>%
+  select(-var, rel.inf)%>%
+  left_join(labels_rgr_msh %>% select(Feature, Label), by = c("Feature" = "Feature"))%>%
+  mutate(RelativeImportance = Importance/sum(Importance)) %>%
+  ggplot(aes(x = reorder(Label, - RelativeImportance),  y = RelativeImportance, color = Class))+
+  geom_point()+
+  labs(x = "", y = "Relative Importance", color = "", caption = "Biomass Relative Growth Rate")+
+  scale_y_continuous(labels = scales::percent)+
+  theme(axis.line = element_line(color = 'grey50'),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_color_jcolors(palette = "pal7")
+  
+
+```
+
+
+### Partial Dependence{.tabset}
+
+Assessing how, when we hold everything else constant, what the realtionships are betweern growth rate and the predictor.
+
+```{r echo=FALSE}
+PDP <-
+  map(.x = gbm_regressor_bio_residuals$var.names, ~{
+  Label <- labels_rgr_msh  %>% filter(Label!= "Soil pH") %>%
+    filter(Feature %in%.x) %>% select(Label) %>% reduce(c)
+  plot.gbm(x = gbm_regressor_bio_residuals, i.var = .x, return.grid = TRUE, n.trees = 1000)%>%
+    ggplot(aes_string(x = .x, y = "y"))+
+    geom_line(aes(group = 1), size = 1)+
+    labs(y = "Growth Rate", x = Label)+
+  theme(axis.line = element_line(color = 'grey50'))
+})
+PDPNames <-
+ unlist(map(.x = gbm_regressor_bio_residuals$var.names, ~{
+  Label <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% select(Label) %>% reduce(c)
+}))
+
+
+```
+
+
+
+```{r echo=FALSE, results="asis"}
+
+
+names(PDP) <- PDPNames
+
+for(i in 1:length(PDPNames)){
+  cat("####", names(PDP)[i], "{.unnumbered}\n")
+  print(PDP[[i]])
+  cat("\n\n")
+}
+
+
+```
+
+
+### Performance - True Traits Value
+
+How does the model perform when we use the true indiivual trait value?
+
+```{r echo=FALSE}
+predictions_gbm_bio_train <- 
+  rgr_msh_na %>% filter(Group == "Train") %>% select(BIO_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bio_residuals, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Train")))
+predictions_gbm_bio_test <- 
+   rgr_msh_na %>% filter(Group == "Test") %>% select(BIO_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bio_residuals, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Test")))
+
+
+DT::datatable(metrics(predictions_gbm_bio_train, truth = "BIO_GR", estimate = Prediction) %>%
+  mutate(TrainError = .estimate) %>% select(-.estimate)%>%
+  left_join(metrics(predictions_gbm_bio_test, truth = "BIO_GR", estimate = Prediction) %>%
+              mutate(TestError = .estimate) %>% select(-.estimate)))
+
+```
+
+### Performance - Species Means for Trait Value
+
+Does the test error change when we use the average for that species?
+
+```{r echo=FALSE}
+predictions_gbm_bio_train <- 
+  rgr_msh_na %>% filter(Group == "Train") %>% select(BIO_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bio_residuals, 
+                              newdata = rgr_msh_na %>% mutate(Species = factor(Species))%>%
+                                group_by(Species) %>% 
+                                mutate(across(PlantTraitsKeep[PlantTraitsKeep %in% 
+                                                                colnames(rgr_msh_na)], mean))%>%
+                                filter(Group == "Train")))
+predictions_gbm_bio_test <- 
+   rgr_msh_na %>% filter(Group == "Test") %>% select(BIO_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bio_residuals, 
+                              newdata = rgr_msh_na %>% mutate(Species = factor(Species))%>%
+                                group_by(Species) %>% 
+                                mutate(across(PlantTraitsKeep[PlantTraitsKeep %in% 
+                                                                colnames(rgr_msh_na)], mean))%>%
+                                filter(Group == "Test")))
+
+
+DT::datatable(metrics(predictions_gbm_bio_train, truth = "BIO_GR", estimate = Prediction) %>%
+  mutate(TrainError = .estimate) %>% select(-.estimate)%>%
+  left_join(metrics(predictions_gbm_bio_test, truth = "BIO_GR", estimate = Prediction) %>%
+              mutate(TestError = .estimate) %>% select(-.estimate)) )
+
+```
+
+### Interactions | Table
+
+Let's explore the interactions in these data.
+
+```{r  eval=FALSE, include=FALSE}
+exploreinteractionsBIO <-
+  do.call(rbind, lapply(gbm_regressor_bio_residuals$var.names, function(x)
+                {
+    
+      lapply(gbm_regressor_bio_residuals$var.names, function(y)
+                       {
+        Result<-
+          tryCatch(
+               {
+                 gbm::interact.gbm(
+                   x = gbm_regressor_bio_residuals,
+                     data = rgr_msh_na %>% filter(Group == "Train"),
+                   i.var = c(x,y))
+               }, error = function(msg)
+                 {
+                 return(NA)
+               }
+                     
+                 )
+        data.frame(Target = x, Source = y, Value = Result)
+                       })
+    
+              }))
+  
+
+
+```
+
+
+
+```{r error = FALSE, message=FALSE, echo=FALSE}
+InteractionsGBMBIO <-
+  do.call(rbind,exploreinteractionsBIO) %>%
+  filter(Target != Source) %>%
+  arrange(desc(Value)) %>%
+  filter(row_number() %% 2 == 1)
+
+DT::datatable(InteractionsGBMBIO %>% arrange(desc(Value)))
+```
+
+### Interactions | Plots{.tabset}
+
+Now, we plot interactions with values>0.1.
+
+```{r include=FALSE}
+PDPInteractions <-
+  map2(.x = InteractionsGBMBIO %>% filter(Value>0.1) %>% select(Source) %>% reduce(c), 
+      .y = InteractionsGBMBIO %>% filter(Value>0.1) %>% select(Target) %>% reduce(c),
+      ~{
+         LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         
+        V1Max <- max(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        V1Min <- min(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        
+        V2Max <- max(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+        V2Min <- min(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+        gridexpand <- rgr_msh_na
+        
+        Selecting <- gbm_regressor_bio_residuals$var.names[!gbm_regressor_bio_residuals$var.names%in%c(.x,.y)]
+        Constant <-  data.frame(gridexpand %>% select(all_of(Selecting))  %>% drop_na()%>%
+          mutate(across(Selecting, mean)) %>% head(1))
+        
+        V1Range <- seq(V1Min, V1Max, length.out = 100)
+        V2Range <- seq(V2Min, V2Max, length.out = 100)
+        PrepareGrid <- data.frame(V1 = V1Range, V2 = V2Range)
+        PrepareGrid[,.x] <- V1Range
+         PrepareGrid[,.y] <- V2Range
+         
+         PrepareGrid <- PrepareGrid %>% select(-V2, -V1)
+         
+        expand_grid(PrepareGrid, Constant) %>%
+          mutate(GrowthRate = predict( gbm_regressor_bio_residuals, n.trees = 1000,
+                                       newdata = expand_grid(PrepareGrid, Constant))) %>%
+          mutate(Variable1 = V1Range,
+                 Variable2 = cut(V1Range, quantile(V1Range), include.lowest = TRUE))%>%
+    ggplot(aes(x = Variable1, y = GrowthRate, color = Variable2))+
+    geom_line(aes(group = Variable2), size = 1)+
+    labs(y = "Growth Rate", x = LabelX, color = LabelY)+
+  theme(axis.line = element_line(color = 'grey50'), legend.position = "bottom")+
+  scale_color_jcolors(palette = "pal7")
+})
+
+
+
+```
+
+```{r include=FALSE}
+PDPInteractionsNames <-
+ map2(.x = InteractionsGBMBIO %>% filter(Value>0.1) %>% select(Source) %>% reduce(c), 
+      .y = InteractionsGBMBIO %>% filter(Value>0.1) %>% select(Target) %>% reduce(c),
+      ~{
+        
+        LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         
+         result <- paste0(LabelX, ":", LabelY)
+         
+      }) %>% reduce(c)
+```
+
+
+
+```{r echo=FALSE, results="asis"}
+
+
+names(PDPInteractions) <- PDPInteractionsNames
+
+for(i in 1:length(PDPInteractions)){
+  cat("####", names(PDPInteractions)[i], "{.unnumbered}\n")
+  print(PDPInteractions[[i]])
+  cat("\n\n")
+}
+
+
+```
+
+### Group Relative Importance
+
+Finally, we compare the relative importance of the various groups - tree age, plant traits, and environmental conditions. 
+
+```{r echo=FALSE}
+
+ DT::datatable(summary(gbm_regressor_bio_residuals, plotit = FALSE)%>%
+  mutate(Feature = var,
+         Importance = rel.inf,
+         Group = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Feature %in% PlantTraitsKeep ~ "Plant Traits",
+                           Feature %in% "Tree.Age" ~ "Tree Age",
+                           TRUE ~ "Environmental Conditions")) %>%
+  select(-var, -rel.inf)%>%
+  group_by(Group) %>%
+  summarise(`Relative Importance(%)` = sum(Importance))%>%
+  mutate(`Relative Importance(%)` = round(`Relative Importance(%)`/sum(`Relative Importance(%)`)*100)))
+
+```
+
+
+
+## BAI ~ PlantTraits + TreeAge + EnvironmentalVariables{.tabset}
+
+### Tune Model
+
+```{r eval=FALSE}
+# training the model using H20
+startTime <- Sys.time()
+gbmParmBAINoDate <-
+  h20_gbm_tune(path = here("data/RGRH20NoDateBAI.csv"),
+             status = "BAI_GR",
+             type = "integer")
+endTime <- Sys.time()
+endTime-startTime
+
+```
+
+### Model Parameters
+
+First, we look at the best parameters from tuning. 
+
+```{r echo=FALSE}
+gbmParmBAINoDate
+
+```
+
+### Build Model
+
+Now, we can build the model.
+
+```{r eval=FALSE}
+set.seed(123)
+gbm_regressor_bai_residuals <-
+  gbm(BAI_GR ~ .,
+      data = 
+        rgr_msh_na %>% filter(Group == "Train")%>% filter(!is.na(BAI_GR))%>%
+        select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Tree.Age", "BAI_GR"))),
+      n.trees = 1000,
+      interaction.depth = 14, #max depth 
+      shrinkage = 0.05, #learning rate
+      n.minobsinnode = 23, #col_sample_rate 
+      bag.fraction = 0.36, # sample_rate,
+      verbose = FALSE,
+      n.cores = NULL,
+      cv.folds = 5)
+
+
+```
+
+
+### Relative Importance
+
+First, we look at the importance of variables in the model. 
+
+
+```{r echo=FALSE, message=FALSE}
+
+summary(gbm_regressor_bai_residuals, plotit = FALSE)%>%
+  mutate(Feature = var,
+         Importance = rel.inf,
+         Class = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Feature %in% PlantTraitsKeep ~ "Plant Traits",
+                           Feature %in% "Tree.Age" ~ "Tree Age",
+                           TRUE ~ "Environmental Conditions")) %>%
+  select(-var, rel.inf)%>%
+  left_join(labels_rgr_msh %>% select(Feature, Label), by = c("Feature" = "Feature"))%>%
+  mutate(RelativeImportance = Importance/sum(Importance)) %>%
+  ggplot(aes(x = reorder(Label, - RelativeImportance),  y = RelativeImportance, color = Class))+
+  geom_point()+
+  labs(x = "", y = "Relative Importance", color = "", caption = "Basal Area Relative Growth Rate")+
+  scale_y_continuous(labels = scales::percent)+
+  theme(axis.line = element_line(color = 'grey50'),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_color_jcolors(palette = "pal7")
+  
+
+```
+
+
+### Partial Dependence{.tabset}
+
+Assessing how, when we hold everything else constant, what the realtionships are betweern growth rate and the predictor.
+
+```{r echo=FALSE}
+PDP <-
+  map(.x = gbm_regressor_bai_residuals$var.names, ~{
+  Label <- labels_rgr_msh  %>% filter(Label!= "Soil pH") %>%
+    filter(Feature %in%.x) %>% select(Label) %>% reduce(c)
+  plot.gbm(x = gbm_regressor_bai_residuals, i.var = .x, return.grid = TRUE, n.trees = 1000)%>%
+    ggplot(aes_string(x = .x, y = "y"))+
+    geom_line(aes(group = 1), size = 1)+
+    labs(y = "Growth Rate", x = Label)+
+  theme(axis.line = element_line(color = 'grey50'))
+})
+PDPNames <-
+ unlist(map(.x = gbm_regressor_bai_residuals$var.names, ~{
+  Label <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% select(Label) %>% reduce(c)
+}))
+
+
+```
+
+
+
+```{r echo=FALSE, results="asis"}
+
+
+names(PDP) <- PDPNames
+
+for(i in 1:length(PDPNames)){
+  cat("####", names(PDP)[i], "{.unnumbered}\n")
+  print(PDP[[i]])
+  cat("\n\n")
+}
+
+
+```
+
+
+### Performance - True Traits Value
+
+How does the model perform when we use the true indiivual trait value?
+
+```{r echo=FALSE}
+predictions_gbm_bai_train <- 
+  rgr_msh_na %>% filter(Group == "Train") %>% select(BAI_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bai_residuals, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Train")))
+predictions_gbm_bai_test <- 
+   rgr_msh_na %>% filter(Group == "Test") %>% select(BAI_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bai_residuals, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Test")))
+
+
+DT::datatable(metrics(predictions_gbm_bai_train, truth = "BAI_GR", estimate = Prediction) %>%
+  mutate(TrainError = .estimate) %>% select(-.estimate)%>%
+  left_join(metrics(predictions_gbm_bai_test, truth = "BAI_GR", estimate = Prediction) %>%
+              mutate(TestError = .estimate) %>% select(-.estimate)))
+
+```
+
+### Performance - Species Means for Trait Value
+
+Does the test error change when we use the average for that species?
+
+```{r echo=FALSE}
+predictions_gbm_bai_train <- 
+  rgr_msh_na %>% filter(Group == "Train") %>% select(BAI_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bai_residuals, 
+                              newdata = rgr_msh_na %>% mutate(Species = factor(Species))%>%
+                                group_by(Species) %>% 
+                                mutate(across(PlantTraitsKeep[PlantTraitsKeep %in% 
+                                                                colnames(rgr_msh_na)], mean))%>%
+                                filter(Group == "Train")))
+predictions_gbm_bai_test <- 
+   rgr_msh_na %>% filter(Group == "Test") %>% select(BAI_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bai_residuals, 
+                              newdata = rgr_msh_na %>% mutate(Species = factor(Species))%>%
+                                group_by(Species) %>% 
+                                mutate(across(PlantTraitsKeep[PlantTraitsKeep %in% 
+                                                                colnames(rgr_msh_na)], mean))%>%
+                                filter(Group == "Test")))
+
+
+DT::datatable(metrics(predictions_gbm_bai_train, truth = "BAI_GR", estimate = Prediction) %>%
+  mutate(TrainError = .estimate) %>% select(-.estimate)%>%
+  left_join(metrics(predictions_gbm_bai_test, truth = "BAI_GR", estimate = Prediction) %>%
+              mutate(TestError = .estimate) %>% select(-.estimate)))
+
+```
+
+### Interactions | Table
+
+Let's explore the interactcions in these data.
+
+```{r include=FALSE, eval=FALSE}
+exploreinteractionsBAI <-
+  do.call(rbind, lapply(gbm_regressor_bai_residuals$var.names, function(x)
+                {
+    
+      lapply(gbm_regressor_bai_residuals$var.names, function(y)
+                       {
+        Result<-
+          tryCatch(
+               {
+                 gbm::interact.gbm(
+                   x = gbm_regressor_bai_residuals,
+                     data = rgr_msh_na %>% filter(Group == "Train"),
+                   i.var = c(x,y))
+               }, error = function(msg)
+                 {
+                 return(NA)
+               }
+                     
+                 )
+        data.frame(Target = x, Source = y, Value = Result)
+                       })
+    
+              }))
+  
+
+
+```
+
+
+
+```{r error = FALSE, message=FALSE, echo=FALSE}
+InteractionsGBMBAI <-
+  do.call(rbind,exploreinteractionsBAI) %>%
+  filter(Target != Source) %>%
+  arrange(desc(Value)) %>%
+  filter(row_number() %% 2 == 1)
+
+DT::datatable(InteractionsGBMBAI %>% arrange(desc(Value)))
+```
+
+### Interactions | Plots{.tabset}
+
+Now, we plot interactions with values>1.01763794414045e-14
+
+```{r include=FALSE}
+PDPInteractions <-
+  map2(.x = InteractionsGBMBAI %>% filter(Value>1.01763794414045e-14) %>% select(Source) %>% reduce(c), 
+      .y = InteractionsGBMBAI %>% filter(Value>1.01763794414045e-14) %>% select(Target) %>% reduce(c),
+      ~{
+         LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         
+        V1Max <- max(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        V1Min <- min(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        
+        V2Max <- max(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+        V2Min <- min(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+        gridexpand <- rgr_msh_na
+        
+        Selecting <- gbm_regressor_bai_residuals$var.names[!gbm_regressor_bai_residuals$var.names%in%c(.x,.y)]
+        Constant <-  data.frame(gridexpand %>% select(all_of(Selecting))  %>% drop_na()%>%
+          mutate(across(Selecting, mean)) %>% head(1))
+        
+        V1Range <- seq(V1Min, V1Max, length.out = 100)
+        V2Range <- seq(V2Min, V2Max, length.out = 100)
+        PrepareGrid <- data.frame(V1 = V1Range, V2 = V2Range)
+        PrepareGrid[,.x] <- V1Range
+         PrepareGrid[,.y] <- V2Range
+         
+         PrepareGrid <- PrepareGrid %>% select(-V2, -V1)
+         
+        expand_grid(PrepareGrid, Constant) %>%
+          mutate(GrowthRate = predict( gbm_regressor_bai_residuals, n.trees = 1000,
+                                       newdata = expand_grid(PrepareGrid, Constant))) %>%
+          mutate(Variable1 = V1Range,
+                 Variable2 = cut(V1Range, quantile(V1Range), include.lowest = TRUE))%>%
+    ggplot(aes(x = Variable1, y = GrowthRate, color = Variable2))+
+    geom_line(aes(group = Variable2), size = 1)+
+    labs(y = "Growth Rate", x = LabelX, color = LabelY)+
+  theme(axis.line = element_line(color = 'grey50'), legend.position = "bottom")+
+  scale_color_jcolors(palette = "pal7")
+})
+
+
+
+```
+
+```{r include=FALSE}
+PDPInteractionsNames <-
+ map2(.x = InteractionsGBMBAI %>% filter(Value>1.01763794414045e-14) %>% select(Source) %>% reduce(c), 
+      .y = InteractionsGBMBAI %>% filter(Value>1.01763794414045e-14) %>% select(Target) %>% reduce(c),
+      ~{
+        
+         LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         
+         result <- paste0(LabelX, ":", LabelY)
+         
+      }) %>% reduce(c)
+```
+
+
+
+```{r echo=FALSE, results="asis"}
+
+
+names(PDPInteractions) <- PDPInteractionsNames
+
+for(i in 1:length(PDPInteractions)){
+  cat("####", names(PDPInteractions)[i], "{.unnumbered}\n")
+  print(PDPInteractions[[i]])
+  cat("\n\n")
+}
+
+
+```
+
+### Group Relative Importance
+
+Finally, we compare the relative importance of the various groups - tree age, plant traits, and environmental conditions. 
+
+```{r echo=FALSE}
+
+ DT::datatable(summary(gbm_regressor_bai_residuals, plotit = FALSE)%>%
+  mutate(Feature = var,
+         Importance = rel.inf,
+         Group = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Feature %in% PlantTraitsKeep ~ "Plant Traits",
+                           Feature %in% "Tree.Age" ~ "Tree Age",
+                           TRUE ~ "Environmental Conditions")) %>%
+  select(-var, -rel.inf)%>%
+  group_by(Group) %>%
+  summarise(`Relative Importance(%)` = sum(Importance))%>%
+  mutate(`Relative Importance(%)` = round(`Relative Importance(%)`/sum(`Relative Importance(%)`)*100)))
+
+```
+
+
+
+
+
+```{r include=FALSE}
+
+
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(any_of(c(EnvironmentalVariablesKeep, "Species", "Tree.Age", "BIO_GR"))),
+          here("data/RGRH20NoDateBIOSpecies.csv"))
+
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(any_of(c(EnvironmentalVariablesKeep, "Species", "Tree.Age", "BAI_GR"))),
+          here("data/RGRH20NoDateBAISpecies.csv"))
+```
+
+
+
+
+
+## BIO ~ SpeciesIdentity + TreeAge + EnvironmentalVariables{.tabset}
+
+### Tune Model
+
+```{r eval=FALSE}
+startTime <- Sys.time()
+gbmParmBIONoDateSpecies <-
+  h20_gbm_tune(path = here("data/RGRH20NoDateBIOSpecies.csv"),
+             status = "BIO_GR",
+             type = "integer")
+endTime <- Sys.time()
+endTime-startTime
+
+```
+
+### Model Parameters
+
+First, we look at the best parameters from tuning. 
+
+```{r echo=FALSE}
+gbmParmBIONoDateSpecies
+
+```
+
+### Build Model
+
+Now, we can build the model.
+
+```{r eval=FALSE}
+set.seed(123)
+gbm_regressor_bio_residuals_species <-
+  gbm(BIO_GR ~ .,
+      data = 
+        rgr_msh_na %>% filter(Group == "Train")%>% filter(!is.na(BIO_GR))%>%
+        select(any_of(c(EnvironmentalVariablesKeep, "Species", "Tree.Age", "BIO_GR"))) %>%
+        mutate(Species = factor(Species)),
+      n.trees = 1000,
+      interaction.depth = 11, # max depth
+      shrinkage = 0.05, #learning rate
+      n.minobsinnode = 5, #col_sample_rate 
+      bag.fraction = 0.65, # sample_rate,
+      verbose = FALSE,
+      n.cores = NULL,
+      cv.folds = 5)
+
+
+```
+
+
+### Relative Importance
+
+First, we look at the importance of variables in the model. 
+
+
+```{r echo=FALSE, message=FALSE}
+
+summary(gbm_regressor_bio_residuals_species, plotit = FALSE)%>%
+  mutate(Feature = var,
+         Importance = rel.inf,
+         Class = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Feature %in% PlantTraitsKeep ~ "Plant Traits",
+                           Feature %in% "Tree.Age" ~ "Tree Age",
+                           TRUE ~ "Species Identity")) %>%
+  select(-var, rel.inf)%>%
+  left_join(labels_rgr_msh %>% select(Feature, Label), by = c("Feature" = "Feature"))%>%
+  mutate(RelativeImportance = Importance/sum(Importance)) %>%
+  ggplot(aes(x = reorder(Label, - RelativeImportance),  y = RelativeImportance, color = Class))+
+  geom_point()+
+  labs(x = "", y = "Relative Importance", color = "", caption = "Biomass Relative Growth Rate")+
+  scale_y_continuous(labels = scales::percent)+
+  theme(axis.line = element_line(color = 'grey50'),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_color_jcolors(palette = "pal7")
+  
+
+```
+
+
+### Partial Dependence{.tabset}
+
+Assessing how, when we hold everything else constant, what the relationships are between growth rate and the predictor.
+
+```{r echo=FALSE}
+PDP <-
+  map(.x = gbm_regressor_bio_residuals_species$var.names, ~{
+  Label <- labels_rgr_msh  %>% filter(Label!= "Soil pH") %>%
+    filter(Feature %in%.x) %>% select(Label) %>% reduce(c)
+  plot.gbm(x = gbm_regressor_bio_residuals_species, i.var = .x, return.grid = TRUE, n.trees = 1000)%>%
+    ggplot(aes_string(x = .x, y = "y"))+
+    geom_line(aes(group = 1), size = 1)+
+    labs(y = "Growth Rate", x = Label)+
+  theme(axis.line = element_line(color = 'grey50'))
+})
+PDPNames <-
+ unlist(map(.x = gbm_regressor_bio_residuals_species$var.names, ~{
+  Label <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% select(Label) %>% reduce(c)
+}))
+
+
+```
+
+
+
+```{r echo=FALSE, results="asis"}
+
+
+names(PDP) <- PDPNames
+
+for(i in 1:length(PDPNames)){
+  cat("####", names(PDP)[i], "{.unnumbered}\n")
+  print(PDP[[i]])
+  cat("\n\n")
+}
+
+
+```
+
+
+### Performance - True Traits Value
+
+How does the model perform when we use the true individual trait value?
+
+```{r echo=FALSE}
+predictions_gbm_bio_train <- 
+  rgr_msh_na %>% filter(Group == "Train") %>% select(BIO_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bio_residuals_species, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Train")))
+predictions_gbm_bio_test <- 
+   rgr_msh_na %>% filter(Group == "Test") %>% select(BIO_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bio_residuals_species, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Test")))
+
+
+DT::datatable(metrics(predictions_gbm_bio_train, truth = "BIO_GR", estimate = Prediction) %>%
+  mutate(TrainError = .estimate) %>% select(-.estimate)%>%
+  left_join(metrics(predictions_gbm_bio_test, truth = "BIO_GR", estimate = Prediction) %>%
+              mutate(TestError = .estimate) %>% select(-.estimate)))
+
+```
+
+
+### Interactions | Table
+
+Let's explore the interactions in these data.
+
+```{r include=FALSE, eval=FALSE}
+exploreinteractionsBIOSpecies <-
+  do.call(rbind, lapply(gbm_regressor_bio_residuals_species$var.names, function(x)
+                {
+    
+      lapply(gbm_regressor_bio_residuals_species$var.names, function(y)
+                       {
+        Result<-
+          tryCatch(
+               {
+                 gbm::interact.gbm(
+                   x = gbm_regressor_bio_residuals_species,
+                     data = rgr_msh_na %>% filter(Group == "Train"),
+                   i.var = c(x,y))
+               }, error = function(msg)
+                 {
+                 return(NA)
+               }
+                     
+                 )
+        data.frame(Target = x, Source = y, Value = Result)
+                       })
+    
+              }))
+  
+
+
+```
+
+
+
+```{r error = FALSE, message=FALSE}
+InteractionsGBMBIOSpecies <-
+  do.call(rbind,exploreinteractionsBIOSpecies) %>%
+  filter(Target != Source) %>%
+  arrange(desc(Value)) %>%
+  filter(row_number() %% 2 == 1)
+
+DT::datatable(InteractionsGBMBIOSpecies %>% arrange(desc(Value)))
+```
+
+### Interactions | Plots{.tabset}
+
+Now, we plot interactions with values>0.15.
+
+
+
+
+
+```{r include=FALSE}
+PDPInteractions <-
+  map2(.x = InteractionsGBMBIOSpecies %>% filter(Value>0.15) %>% select(Source) %>% reduce(c), 
+       .y = InteractionsGBMBIOSpecies %>% filter(Value>0.15) %>% select(Target) %>% reduce(c), ~{
+         
+         LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         
+         if(.x=="Species"){
+           
+           
+        
+            V2Max <- max(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+            V2Min <- min(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+            gridexpand <- rgr_msh_na
+            
+            Focused <- gbm_regressor_bio_residuals_species$var.names 
+            Selecting <- Focused[!Focused%in%c(.x,.y)]
+            
+            Constant <-  
+              data.frame(gridexpand %>% select(all_of(Selecting))  %>% drop_na()%>%
+              mutate(across(Selecting, mean)) %>% head(1))
+            
+            V2Range <- seq(V2Min, V2Max, length.out = 100)
+            Species <- unique(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+            
+            PrepareGrid <- 
+              expand_grid(V1 = Species, V2 = V2Range, Constant) 
+              
+            PrepareGrid[,.x] <- PrepareGrid$V1
+             PrepareGrid[,.y] <- PrepareGrid$V2
+             
+             PrepareGrid <- PrepareGrid %>% select(-V2, -V1)
+             
+             DataSave <-
+               PrepareGrid %>%distinct() 
+             
+             DataSave %>%
+              mutate(GrowthRate = predict( gbm_regressor_bio_residuals_species, n.trees = 1000,
+                                           newdata = DataSave)) %>%
+              mutate(Variable1 = !!sym(.x),
+                     Variable2 = cut(!!sym(.y), quantile(!!sym(.y)), include.lowest = TRUE))%>%
+               group_by(Variable2, Variable1)%>%
+               mutate(GrowthRate = mean(GrowthRate, na.rm = TRUE))%>%
+               ggplot(aes(x = Variable1, y = GrowthRate, color = Variable2))+
+               geom_point()+
+               labs(y = "Growth Rate", x = LabelX, color = LabelY)+
+               theme(axis.line = element_line(color = 'grey50'), 
+                     axis.text.x = element_text(angle = 45, hjust = 1),
+                     legend.position = "bottom")+
+               scale_color_jcolors(palette = "pal7")
+             } 
+         
+         else if (.y=="Species"){
+           
+            LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         
+        
+        
+        V2Max <- max(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        V2Min <- min(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        gridexpand <- rgr_msh_na
+        
+         Focused <- gbm_regressor_bio_residuals_species$var.names 
+            Selecting <- Focused[!Focused%in%c(.x,.y)]
+            
+        Constant <-  data.frame(gridexpand %>% select(all_of(Selecting))  %>% drop_na()%>%
+          mutate(across(Selecting, mean)) %>% head(1))
+        
+        V2Range <- seq(V2Min, V2Max, length.out = 100)
+        Species <- unique(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+        
+        PrepareGrid <- 
+          expand_grid(V1 = Species, V2 = V2Range, Constant) 
+          
+        PrepareGrid[,.y] <- PrepareGrid$V1
+         PrepareGrid[,.x] <- PrepareGrid$V2
+         
+         PrepareGrid <- PrepareGrid %>% select(-V2, -V1)
+         
+         DataSave <-
+           PrepareGrid %>%distinct() 
+         
+         DataSave %>%
+         mutate(GrowthRate = predict( gbm_regressor_bio_residuals_species, n.trees = 1000,
+                                       newdata = DataSave)) %>% filter(!is.na(GrowthRate))%>%
+          mutate(Variable1 = !!sym(.y),
+                 Variable2 = cut(!!sym(.x), quantile(!!sym(.x)), include.lowest = TRUE))%>%
+           group_by(Variable2, Variable1)%>%
+           mutate(GrowthRate = mean(GrowthRate, na.rm = TRUE))%>%
+           ggplot(aes(x = Variable1, y = GrowthRate, color = Variable2))+
+           geom_point()+
+           labs(y = "Growth Rate", x = LabelX, color = LabelY)+
+           theme(axis.line = element_line(color = 'grey50'), 
+                 axis.text.x = element_text(angle = 45, hjust = 1),
+                 legend.position = "bottom")+
+           scale_color_jcolors(palette = "pal7")
+            
+      }
+      
+      else{
+             LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         
+        Species <- unique(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        
+        V2Max <- max(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+        V2Min <- min(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+        
+        V1Max <- max(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        V1Min <- min(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        gridexpand <- rgr_msh_na
+        
+         Focused <- gbm_regressor_bio_residuals_species$var.names 
+            Selecting <- Focused[!Focused%in%c(.x,.y)]
+            
+        Constant <-  data.frame(gridexpand %>% select(all_of(Selecting))  %>% drop_na()%>%
+          mutate(across(Selecting, mean)) %>% head(1))
+        
+        V2Range <- seq(V2Min, V2Max, length.out = 100)
+        V1Range <- seq(V2Min, V1Max, length.out = 100)
+        PrepareGrid <- expand.grid(V1 = V1Range, V2 = V2Range)
+        PrepareGrid[,.x] <- V1Range
+         PrepareGrid[,.y] <- V2Range
+         
+         PrepareGrid <- PrepareGrid %>% select(-V2, -V1)
+         
+         DataSave <-
+           expand_grid(PrepareGrid, Constant)
+         
+         DataSave %>%
+          mutate(GrowthRate = predict( gbm_regressor_bio_residuals_species, n.trees = 1000,
+                                       newdata = expand_grid(PrepareGrid, Constant))) %>%
+          mutate(Variable1 = !!sym(.x),
+                 Variable2 = cut(!!sym(.y), quantile(!!sym(.y)), include.lowest = TRUE))%>%
+           ggplot(aes(x = Variable1, y = GrowthRate, color = Variable2))+
+           geom_line(aes(group = Variable2), size = 1)+
+           labs(y = "Growth Rate", x = LabelX, color = LabelY)+
+           theme(axis.line = element_line(color = 'grey50'), legend.position = "bottom")+
+           scale_color_jcolors(palette = "pal7")
+            
+        }
+        
+        
+        
+})
+
+
+
+```
+
+
+
+```{r include=FALSE}
+PDPInteractionsNames <-
+ map2(.x = InteractionsGBMBIOSpecies %>% filter(Value>0.15) %>% select(Source) %>% reduce(c), 
+      .y = InteractionsGBMBIOSpecies %>% filter(Value>0.15) %>% select(Target) %>% reduce(c),
+      ~{
+        
+        LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         
+         result <- paste0(LabelX, ":", LabelY)
+         
+      }) %>% reduce(c)
+```
+
+
+
+```{r echo=FALSE, results="asis"}
+
+
+names(PDPInteractions) <- PDPInteractionsNames
+
+for(i in 1:length(PDPInteractions)){
+  cat("####", names(PDPInteractions)[i], "{.unnumbered}\n")
+  print(PDPInteractions[[i]])
+  cat("\n\n")
+}
+
+
+```
+
+### Group Relative Importance
+
+Finally, we compare the relative importance of the various groups - tree age, plant traits, and environmental conditions. 
+
+```{r echo=FALSE}
+
+ DT::datatable(summary(gbm_regressor_bio_residuals_species, plotit = FALSE)%>%
+  mutate(Feature = var,
+         Importance = rel.inf,
+         Group = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Feature %in% PlantTraitsKeep ~ "Plant Traits",
+                           Feature %in% "Tree.Age" ~ "Tree Age",
+                           TRUE ~ "Species")) %>%
+  select(-var, -rel.inf)%>%
+  group_by(Group) %>%
+  summarise(`Relative Importance(%)` = sum(Importance))%>%
+  mutate(`Relative Importance(%)` = round(`Relative Importance(%)`/sum(`Relative Importance(%)`)*100)))
+
+```
+
+
+
+## BAI ~ SpeciesIdentity + TreeAge + EnvironmentalVariables{.tabset}
+
+```{r eval=FALSE}
+startTime <- Sys.time()
+gbmParmBAINoDateSpecies <-
+  h20_gbm_tune(path = here("data/RGRH20NoDateBAISpecies.csv"),
+             status = "BAI_GR",
+             type = "integer")
+endTime <- Sys.time()
+endTime-startTime
+
+```
+
+### Model Paramaerts
+
+First, we look at the best parameters from tuning. 
+
+```{r echo=FALSE}
+gbmParmBAINoDateSpecies
+
+```
+
+### Build Model
+
+Now, we can build the model.
+
+```{r eval=FALSE}
+set.seed(123)
+gbm_regressor_bai_residuals_species <-
+   gbm(BAI_GR ~ .,
+      data = 
+        rgr_msh_na %>% filter(Group == "Train")%>% filter(!is.na(BAI_GR))%>%
+        select(any_of(c(EnvironmentalVariablesKeep, "Species", "Tree.Age", "BAI_GR"))) %>%
+        mutate(Species = factor(Species)),
+      n.trees = 1000,
+      interaction.depth = 9, # max depth
+      shrinkage = 0.05, #learning rate
+      n.minobsinnode = 4, #col_sample_rate 
+      bag.fraction = 0.81, # sample_rate,
+      verbose = FALSE,
+      n.cores = NULL,
+      cv.folds = 5)
+
+
+```
+
+
+### Relative Importance
+
+First, we look at the importance of variables in the model. 
+
+
+```{r echo=FALSE, message=FALSE}
+
+summary(gbm_regressor_bai_residuals_species, plotit = FALSE)%>%
+  mutate(Feature = var,
+         Importance = rel.inf,
+         Class = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Feature %in% PlantTraitsKeep ~ "Plant Traits",
+                           Feature %in% "Tree.Age" ~ "Tree Age",
+                           TRUE ~ "Species")) %>%
+  select(-var, rel.inf)%>%
+  left_join(labels_rgr_msh %>% select(Feature, Label), by = c("Feature" = "Feature"))%>%
+  mutate(RelativeImportance = Importance/sum(Importance)) %>%
+  ggplot(aes(x = reorder(Label, - RelativeImportance),  y = RelativeImportance, color = Class))+
+  geom_point()+
+  labs(x = "", y = "Relative Importance", color = "", caption = "Biomass Relative Growth Rate")+
+  scale_y_continuous(labels = scales::percent)+
+  theme(axis.line = element_line(color = 'grey50'),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_color_jcolors(palette = "pal7")
+  
+
+```
+
+
+### Partial Dependence{.tabset}
+
+Assessing how, when we hold everything else constant, what the relationships are between growth rate and the predictor.
+
+```{r echo=FALSE}
+PDP <-
+  map(.x = gbm_regressor_bai_residuals_species$var.names, ~{
+  Label <- labels_rgr_msh  %>% filter(Label!= "Soil pH") %>%
+    filter(Feature %in%.x) %>% select(Label) %>% reduce(c)
+  plot.gbm(x = gbm_regressor_bai_residuals_species, i.var = .x, return.grid = TRUE, n.trees = 1000)%>%
+    ggplot(aes_string(x = .x, y = "y"))+
+    geom_line(aes(group = 1), size = 1)+
+    labs(y = "Growth Rate", x = Label)+
+  theme(axis.line = element_line(color = 'grey50'))
+})
+PDPNames <-
+ unlist(map(.x = gbm_regressor_bai_residuals_species$var.names, ~{
+  Label <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% select(Label) %>% reduce(c)
+}))
+
+
+```
+
+
+
+```{r echo=FALSE, results="asis"}
+
+
+names(PDP) <- PDPNames
+
+for(i in 1:length(PDPNames)){
+  cat("####", names(PDP)[i], "{.unnumbered}\n")
+  print(PDP[[i]])
+  cat("\n\n")
+}
+
+
+```
+
+
+### Performance 
+
+How does the model perform?
+
+```{r echo=FALSE}
+predictions_gbm_bai_train <- 
+  rgr_msh_na %>% filter(Group == "Train") %>% select(BAI_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bai_residuals_species, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Train")))
+predictions_gbm_bai_test <- 
+   rgr_msh_na %>% filter(Group == "Test") %>% select(BAI_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bai_residuals_species, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Test")))
+
+
+DT::datatable(metrics(predictions_gbm_bai_train, truth = "BAI_GR", estimate = Prediction) %>%
+  mutate(TrainError = .estimate) %>% select(-.estimate)%>%
+  left_join(metrics(predictions_gbm_bai_test, truth = "BAI_GR", estimate = Prediction) %>%
+              mutate(TestError = .estimate) %>% select(-.estimate)))
+
+```
+
+
+### Interactions | Table
+
+Let's explore the interactions in these data.
+
+```{r include=FALSE, eval=FALSE}
+exploreinteractionsBAISpecies <-
+  do.call(rbind, lapply(gbm_regressor_bai_residuals_species$var.names, function(x)
+                {
+    
+      lapply(gbm_regressor_bai_residuals_species$var.names, function(y)
+                       {
+        Result<-
+          tryCatch(
+               {
+                 gbm::interact.gbm(
+                   x = gbm_regressor_bai_residuals_species,
+                     data = rgr_msh_na %>% filter(Group == "Train"),
+                   i.var = c(x,y))
+               }, error = function(msg)
+                 {
+                 return(NA)
+               }
+                     
+                 )
+        data.frame(Target = x, Source = y, Value = Result)
+                       })
+    
+              }))
+  
+
+
+```
+
+
+
+```{r error = FALSE, message=FALSE}
+InteractionsGBMBAISpecies <-
+  do.call(rbind,exploreinteractionsBAISpecies) %>%
+  filter(Target != Source) %>%
+  arrange(desc(Value)) %>%
+  filter(row_number() %% 2 == 1)
+
+DT::datatable(InteractionsGBMBAISpecies %>% arrange(desc(Value)))
+```
+
+### Interactions | Plots{.tabset}
+
+Now, we plot interactions with values>0.15.
+
+```{r include=FALSE}
+PDPInteractions <-
+  map2(.x = InteractionsGBMBAISpecies %>% filter(Value>0.15) %>% select(Source) %>% reduce(c), 
+      .y = InteractionsGBMBAISpecies %>% filter(Value>0.15) %>% select(Target) %>% reduce(c),
+      ~{
+         LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         
+         if(.x=="Species"){
+           
+           
+        
+            V2Max <- max(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+            V2Min <- min(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+            gridexpand <- rgr_msh_na
+            
+            Focused <- gbm_regressor_bio_residuals_species$var.names 
+            Selecting <- Focused[!Focused%in%c(.x,.y)]
+            
+            Constant <-  
+              data.frame(gridexpand %>% select(all_of(Selecting))  %>% drop_na()%>%
+              mutate(across(Selecting, mean)) %>% head(1))
+            
+            V2Range <- seq(V2Min, V2Max, length.out = 100)
+            Species <- unique(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+            
+            PrepareGrid <- 
+              expand_grid(V1 = Species, V2 = V2Range, Constant) 
+              
+            PrepareGrid[,.x] <- PrepareGrid$V1
+             PrepareGrid[,.y] <- PrepareGrid$V2
+             
+             PrepareGrid <- PrepareGrid %>% select(-V2, -V1)
+             
+             DataSave <-
+               PrepareGrid %>%distinct() 
+             
+             DataSave %>%
+              mutate(GrowthRate = predict( gbm_regressor_bai_residuals_species, n.trees = 1000,
+                                           newdata = DataSave)) %>%
+              mutate(Variable1 = !!sym(.x),
+                     Variable2 = cut(!!sym(.y), quantile(!!sym(.y)), include.lowest = TRUE))%>%
+               group_by(Variable2, Variable1)%>%
+               mutate(GrowthRate = mean(GrowthRate, na.rm = TRUE))%>%
+               ggplot(aes(x = Variable1, y = GrowthRate, color = Variable2))+
+               geom_point()+
+               labs(y = "Growth Rate", x = LabelX, color = LabelY)+
+               theme(axis.line = element_line(color = 'grey50'), 
+                     axis.text.x = element_text(angle = 45, hjust = 1),
+                     legend.position = "bottom")+
+               scale_color_jcolors(palette = "pal7")
+             } 
+         
+         else if (.y=="Species"){
+           
+            LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         
+        
+        
+        V2Max <- max(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        V2Min <- min(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        gridexpand <- rgr_msh_na
+        
+         Focused <- gbm_regressor_bio_residuals_species$var.names 
+            Selecting <- Focused[!Focused%in%c(.x,.y)]
+            
+        Constant <-  data.frame(gridexpand %>% select(all_of(Selecting))  %>% drop_na()%>%
+          mutate(across(Selecting, mean)) %>% head(1))
+        
+        V2Range <- seq(V2Min, V2Max, length.out = 100)
+        Species <- unique(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+        
+        PrepareGrid <- 
+          expand_grid(V1 = Species, V2 = V2Range, Constant) 
+          
+        PrepareGrid[,.y] <- PrepareGrid$V1
+         PrepareGrid[,.x] <- PrepareGrid$V2
+         
+         PrepareGrid <- PrepareGrid %>% select(-V2, -V1)
+         
+         DataSave <-
+           PrepareGrid %>%distinct() 
+         
+         DataSave %>%
+         mutate(GrowthRate = predict( gbm_regressor_bai_residuals_species, n.trees = 1000,
+                                       newdata = DataSave)) %>% filter(!is.na(GrowthRate))%>%
+          mutate(Variable1 = !!sym(.y),
+                 Variable2 = cut(!!sym(.x), quantile(!!sym(.x)), include.lowest = TRUE))%>%
+           group_by(Variable2, Variable1)%>%
+           mutate(GrowthRate = mean(GrowthRate, na.rm = TRUE))%>%
+           ggplot(aes(x = Variable1, y = GrowthRate, color = Variable2))+
+           geom_point()+
+           labs(y = "Growth Rate", x = LabelX, color = LabelY)+
+           theme(axis.line = element_line(color = 'grey50'), 
+                 axis.text.x = element_text(angle = 45, hjust = 1),
+                 legend.position = "bottom")+
+           scale_color_jcolors(palette = "pal7")
+            
+      }
+      
+      else{
+             LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         
+        Species <- unique(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        
+        V2Max <- max(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+        V2Min <- min(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+        
+        V1Max <- max(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        V1Min <- min(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        gridexpand <- rgr_msh_na
+        
+         Focused <- gbm_regressor_bio_residuals_species$var.names 
+            Selecting <- Focused[!Focused%in%c(.x,.y)]
+            
+        Constant <-  data.frame(gridexpand %>% select(all_of(Selecting))  %>% drop_na()%>%
+          mutate(across(Selecting, mean)) %>% head(1))
+        
+        V2Range <- seq(V2Min, V2Max, length.out = 100)
+        V1Range <- seq(V2Min, V1Max, length.out = 100)
+        PrepareGrid <- expand.grid(V1 = V1Range, V2 = V2Range)
+        PrepareGrid[,.x] <- V1Range
+         PrepareGrid[,.y] <- V2Range
+         
+         PrepareGrid <- PrepareGrid %>% select(-V2, -V1)
+         
+         DataSave <-
+           expand_grid(PrepareGrid, Constant)
+         
+         DataSave %>%
+          mutate(GrowthRate = predict( gbm_regressor_bai_residuals_species, n.trees = 1000,
+                                       newdata = expand_grid(PrepareGrid, Constant))) %>%
+          mutate(Variable1 = !!sym(.x),
+                 Variable2 = cut(!!sym(.y), quantile(!!sym(.y)), include.lowest = TRUE))%>%
+           ggplot(aes(x = Variable1, y = GrowthRate, color = Variable2))+
+           geom_line(aes(group = Variable2), size = 1)+
+           labs(y = "Growth Rate", x = LabelX, color = LabelY)+
+           theme(axis.line = element_line(color = 'grey50'), legend.position = "bottom")+
+           scale_color_jcolors(palette = "pal7")
+            
+        }
+        
+        
+        
+})
+
+
+
+
+```
+
+```{r include=FALSE}
+PDPInteractionsNames <-
+ map2(.x = InteractionsGBMBAISpecies %>% filter(Value>0.15) %>% select(Source) %>% reduce(c), 
+      .y = InteractionsGBMBAISpecies %>% filter(Value>0.15) %>% select(Target) %>% reduce(c),
+      ~{
+        
+        LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         
+         result <- paste0(LabelX, ":", LabelY)
+         
+      }) %>% reduce(c)
+```
+
+
+
+```{r echo=FALSE, results="asis"}
+
+
+names(PDPInteractions) <- PDPInteractionsNames
+
+for(i in 1:length(PDPInteractions)){
+  cat("####", names(PDPInteractions)[i], "{.unnumbered}\n")
+  print(PDPInteractions[[i]])
+  cat("\n\n")
+}
+
+
+```
+
+### Group Relative Importance
+
+Finally, we compare the relative importance of the various groups - tree age, plant traits, and environmental conditions. 
+
+```{r echo=FALSE}
+
+ DT::datatable(summary(gbm_regressor_bai_residuals_species, plotit = FALSE)%>%
+  mutate(Feature = var,
+         Importance = rel.inf,
+         Group = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Feature %in% PlantTraitsKeep ~ "Plant Traits",
+                           Feature %in% "Tree.Age" ~ "Tree Age",
+                           TRUE ~ "Species")) %>%
+  select(-var, -rel.inf)%>%
+  group_by(Group) %>%
+  summarise(`Relative Importance(%)` = sum(Importance))%>%
+  mutate(`Relative Importance(%)` = round(`Relative Importance(%)`/sum(`Relative Importance(%)`)*100)))
+
+```
+
+
+
+

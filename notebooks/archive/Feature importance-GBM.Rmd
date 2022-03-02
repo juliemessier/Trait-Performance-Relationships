@@ -1,0 +1,282 @@
+---
+title: "Ranking traits by their importance to growth rate"
+author: "Jody Daniel"
+date: "`r Sys.Date()`"
+test: " `r getRversion()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    highlight: tango
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE,  out.extra = " ")
+```
+
+# Background
+
+We plan to build a general linear model that predicts tree growth rate. But, we have lots of traits as predictors - environmental and physical. Based on Julie's work, we know that the physical traits are poorly summarized assuming a linear, orthogonal relationship. For the environmental traits, her work suggests that a PCA does a good job in reducing features. As such, in jupyter notebook, we created a new data set that includes these environmental traits as PCs, naming each axis based on the dominant vector relationships. 
+
+There was alot of missing data, so we used predictive mean matching to fill in gaps. Based on preliminary analyses, there isn't much of a difference between the imputed and raw data. So, we can proceed with the imputed data for these analyses.
+
+Before building the GLM, we need to pre-determine which of the traits are most important in predicting growth rate. It is not advisable that we throw a bunch of predictors at the GLM and pull out the important ones. Its best we use another modelling framework for feature reduction and use the results to inform which predictors will go into the GLM. In the past analyses, I used xgboost - here I will use random forest in tidy models. 
+
+1. Prepare data for modelling using recipe - training and test  
+2. Build a gradient boosted model - it allows to keep NAs
+3. Assess performance and determine which features are most important
+4. Compare performance across the 3 growth rate measures
+
+``` {r message = FALSE}
+library(vip)
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+library(dplyr)
+library(here)
+library(skimr)
+library(reshape2)
+library(tidymodels)
+library(qdapTools)
+library(rsample)
+library(corrr)
+library(broom)
+library(vegan)
+library(extrafont)
+library(viridis)
+library(car)
+library(gbm)
+library(stringr)
+source(here("scripts/1. functions.R"))
+source(here("scripts/2. gbm_h2o_tune.R"))
+theme_set(theme_special())
+```
+
+## Preparing data for gradient boosted model 
+
+Assuming that the first 10000 rows describes the data well, I can use col_types = cols(). If not, I will need to specify the class of each column.
+```{r message = FALSE}
+# prior error suggests that there are single quotation marks used to parse numbers
+# I specify that we should read those as a thousand separator
+rgr_msh <- read_csv(here("data/RGR_MSH_PCA.csv"),
+                        guess_max = 10000,
+                        col_types = cols())
+
+rgr_msh_na <- read_csv(here("data/RGR_MSH_PCA_NA.csv"),
+                        guess_max = 10000,
+                        col_types = cols())
+
+# there are NAs in the predictors - let's drop those
+rgr_msh <- rgr_msh[-(which(is.na(rgr_msh$BAI_GR))),]
+rgr_msh$BIO_GR <- as.numeric(rgr_msh$BIO_GR)
+rgr_msh_na <- rgr_msh_na[-(which(is.na(rgr_msh_na$BAI_GR))),]
+
+# now, let's remove columns that are either too correlated are would not be useful
+labels_rgr_msh <- read_csv(here("data/labels.csv"),
+                        guess_max = 10000,
+                        col_types = cols())
+
+# save for later use
+write_csv(rgr_msh,here("data/RGR_MSH_Imputed-RF.csv"))
+write_csv(rgr_msh_na,here("data/RGR_MSH_PCA_Raw-RF.csv"))
+```
+
+
+```{r message = FALSE}
+# what do these data look like?
+kable(skim(rgr_msh),"latex", booktabs = T) %>%
+   kable_styling(latex_options="scale_down")
+# skim(rgr_msh) - for markdown visualization
+
+kable(skim(rgr_msh_na),"latex", booktabs = T) %>%
+   kable_styling(latex_options="scale_down") 
+#skim(rgr_msh_na) #- for markdown visualization
+
+```
+
+## Building the gradient boosted model
+
+The first step in building the gradient boosted model is to tuning. There are four models to tune, because we have two datasets and two predictors. The predictors are basal area growth rate and biomass growth rate. Also, we have a raw dataset, and another that was built from predictive mean matching - the past examinations suggest they are about the same, but I'd like to ensure that the converge on model predictions. 
+
+
+
+``` {r message = FALSE}
+# need a training and test set assess the performance of the model
+# a 70:30 split is typical
+# first, I will work with the imputed data
+set.seed(634)
+split_train_test <-
+  initial_split(
+    data = rgr_msh_na, 
+    prop = 0.70) 
+
+rgr_msh_na <-
+  split_train_test %>% training() %>% mutate(Group = "Train")%>%
+  bind_rows(split_train_test %>% testing() %>% mutate(Group = "Test"))
+
+```
+
+
+
+```{r include=FALSE}
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(-SampleID,-BIO_GR,-Group),
+          here("data/RGRH20BAI.csv"))
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(-SampleID,-BAI_GR,-Group),
+          here("data/RGRH20BOI.csv"))
+
+
+```
+
+
+```{r eval=FALSE}
+startTime <- Sys.time()
+gbmParmBAI <-
+  h20_gbm_tune(path = here("data/RGRH20BAI.csv"),
+             status = "BAI_GR",
+             type = "integar")
+endTime <- Sys.time()
+endTime-startTime
+```
+
+```{r eval=FALSE}
+startTime <- Sys.time()
+gbmParmBIO <-
+  h20_gbm_tune(path = here("data/RGRH20BOI.csv"),
+             status = "BIO_GR",
+             type = "integar")
+endTime <- Sys.time()
+endTime-startTime
+```
+
+
+```{r include=FALSE}
+gbmParmBAI
+gbmParmBIO
+```
+
+
+```{r eval = FALSE}
+set.seed(123)
+gbm_bai <-
+  gbm(BAI_GR ~ .,
+      data = 
+        rgr_msh_na %>% filter(Group == "Train")%>%
+        select(-SampleID,-BIO_GR,-Group),
+      n.trees = 1000,
+      interaction.depth = 16, #max depth
+      shrinkage = 0.05, #learning rate
+      n.minobsinnode = 30, #col_sample_rate
+      bag.fraction = 0.66, # sample_rate,
+      verbose = FALSE,
+      n.cores = NULL,
+      cv.folds = 5)
+set.seed(123)
+gbm_bio <-
+  gbm(BIO_GR ~ .,
+      data = 
+        rgr_msh_na %>% filter(Group == "Train")%>%
+        select(-SampleID,-BAI_GR,-Group),
+      n.trees = 1000,
+      interaction.depth = 11, #max depth
+      shrinkage = 0.05, #learning rate
+      n.minobsinnode = 27, #col_sample_rate
+      bag.fraction = 0.50, # sample_rate,
+      verbose = FALSE,
+      n.cores = NULL,
+      cv.folds = 5)
+```
+
+```{r include=FALSE}
+BestIterBAI <- gbm.perf(gbm_bai, plot.it = FALSE, method = "cv")
+BestIterBIO <- gbm.perf(gbm_bio, plot.it = FALSE, method = "cv")
+
+```
+
+
+```{r echo=FALSE, message=FALSE}
+
+png(here("outputs/BAIGBMImportance.png"), width = 10 , height = 5, units = 'in', res = 600)
+gbm_bai%>%
+  vip(geom = "point", num_features = 25)
+dev.off()
+
+png(here("outputs/BIOGBMImportance.png"), width = 10 , height = 5, units = 'in', res = 600)
+gbm_bio%>%
+  vip(geom = "point",  num_features = 25)
+dev.off()
+
+
+```
+
+```{r, echo=FALSE, out.width = "50%", fig.pos="h"}
+
+include_graphics(here("outputs/BAIGBMImportance.png"))
+include_graphics(here("outputs/BIOGBMImportance.png"))
+
+```
+
+
+After some thought, we realized that using imputed data to measure growth rate was not a good move because measures like tree age/height may be incorrect. Also, the basal growth rate is a better go because:
+1. Julie measured it directly, and so there is less "noise"
+2. It does not require us to make assumptions about the tree growth form (cylindrical vs cone)
+
+Next, I will change for the error rates from the basal growth rate model on the raw data.
+
+```{r}
+# now, I will compare the RSME between the training and test data
+# I am hoping that there is not really much of a difference between the two
+# if there is (much higher for the test)
+# I will be concerned about overfitting - meaning the model does not generalize well
+predictions_gbm_bai_train <- 
+  rgr_msh_na %>% filter(Group == "Train") %>% select(BAI_GR) %>%
+  mutate(Prediction = predict(gbm_bai, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Train")))
+predictions_gbm_bai_test <- 
+   rgr_msh_na %>% filter(Group == "Test") %>% select(BAI_GR) %>%
+  mutate(Prediction = predict(gbm_bai, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Test")))
+
+
+metrics(predictions_gbm_bai_train, truth = "BAI_GR", estimate = Prediction) %>%
+  mutate(TrainError = .estimate) %>% select(-.estimate)%>%
+  left_join(metrics(predictions_gbm_bai_test, truth = "BAI_GR", estimate = Prediction) %>%
+              mutate(TestError = .estimate) %>% select(-.estimate))
+# they are pretty similar (RSME) - so I am not concerned about overfitting
+
+```
+
+```{r}
+# now, I will compare the RSME between the training and test data
+# I am hoping that there is not really much of a difference between the two
+# if there is (much higher for the test)
+# I will be concerned about overfitting - meaning the model does not generalize well
+predictions_gbm_bio_train <- 
+  rgr_msh_na %>% filter(Group == "Train") %>% select(BIO_GR) %>%
+  mutate(Prediction = predict(gbm_bio, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Train")))
+predictions_gbm_bio_test <- 
+   rgr_msh_na %>% filter(Group == "Test") %>% select(BIO_GR) %>%
+  mutate(Prediction = predict(gbm_bio, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Test")))
+
+
+metrics(predictions_gbm_bio_train, truth = "BIO_GR", estimate = Prediction) %>%
+  mutate(TrainError = .estimate) %>% select(-.estimate)%>%
+  left_join(metrics(predictions_gbm_bio_test, truth = "BIO_GR", estimate = Prediction) %>%
+              mutate(TestError = .estimate) %>% select(-.estimate))
+# they are pretty similar (RSME) - so I am not concerned about overfitting
+
+```
+
+# Conclusion
+
+We will use the basal growth rate as the response variable, going forward, for the glm. Also, biomass growth rate makes a bunch of assumptions about each individual tree, which we are not confident is applicable  to all trees in the dataset (different species with different ages).
+
+There's a concern that sampling date has affected some of the meausred trait values - to deal with this, we will run a linear regression on each trait vs sampling date. If there is a signicabt effect, we will only use the residuals vs the raw data. 

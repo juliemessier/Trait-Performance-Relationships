@@ -4,9 +4,10 @@ author: "Jody Daniel"
 date: "`r Sys.Date()`"
 test: " `r getRversion()`"
 output:
- markdowntemplates::skeleton:
+  pdf_document:
+    toc: true
+    toc_depth: 2
     highlight: tango
-    toc: TRUE
 ---
 
 
@@ -14,7 +15,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE,  out.extra = " ")
 ```
 
-## Background
+# Background
 
 We plan to build a general linear model that predicts tree growth rate. But, we have lots of traits as predictors - environmental and physical. Based on Julie's work, we know that the physical traits are poorly summarized assuming a linear, orthogonal relationship. For the environmental traits, her work suggests that a PCA does a good job in reducing features. As such, in jupyter notebook, we created a new data set that includes these environmental traits as PCs, naming each axis based on the dominant vector relationships. 
 
@@ -23,7 +24,7 @@ There was alot of missing data, so we used predictive mean matching to fill in g
 Before building the GLM, we need to pre-determine which of the traits are most important in predicting growth rate. It is not advisable that we throw a bunch of predictors at the GLM and pull out the important ones. Its best we use another modelling framework for feature reduction and use the results to inform which predictors will go into the GLM. In the past analyses, I used xgboost - here I will use random forest in tidy models. 
 
 1. Prepare data for modelling using recipe - training and test  
-2. Build random forest model
+2. Build a gradient boosted model - it allows to keep NAs
 3. Assess performance and determine which features are most important
 4. Compare performance across the 3 growth rate measures
 
@@ -45,11 +46,14 @@ library(vegan)
 library(extrafont)
 library(viridis)
 library(car)
-source(here("scripts/archive/1. functions.R"))
+library(gbm)
+library(stringr)
+source(here("scripts/1. functions.R"))
+source(here("scripts/2. gbm_h2o_tune.R"))
 theme_set(theme_special())
 ```
 
-### Preparing data for random forest model
+## Preparing data for gradient boosted model 
 
 Assuming that the first 10000 rows describes the data well, I can use col_types = cols(). If not, I will need to specify the class of each column.
 ```{r message = FALSE}
@@ -67,214 +71,184 @@ rgr_msh_na <- read_csv(here("data/RGR_MSH_PCA_NA.csv"),
 rgr_msh <- rgr_msh[-(which(is.na(rgr_msh$BAI_GR))),]
 rgr_msh$BIO_GR <- as.numeric(rgr_msh$BIO_GR)
 rgr_msh_na <- rgr_msh_na[-(which(is.na(rgr_msh_na$BAI_GR))),]
+
 # now, let's remove columns that are either too correlated are would not be useful
 labels_rgr_msh <- read_csv(here("data/labels.csv"),
                         guess_max = 10000,
                         col_types = cols())
 
-skim(rgr_msh)
-skim(rgr_msh_na)
+# save for later use
+write_csv(rgr_msh,here("data/RGR_MSH_Imputed-RF.csv"))
+write_csv(rgr_msh_na,here("data/RGR_MSH_PCA_Raw-RF.csv"))
 ```
+
+
+```{r message = FALSE}
+# what do these data look like?
+kable(skim(rgr_msh),"latex", booktabs = T) %>%
+   kable_styling(latex_options="scale_down")
+# skim(rgr_msh) - for markdown visualization
+
+kable(skim(rgr_msh_na),"latex", booktabs = T) %>%
+   kable_styling(latex_options="scale_down") 
+#skim(rgr_msh_na) #- for markdown visualization
+
+```
+
+## Building the gradient boosted model
+
+The first step in building the gradient boosted model is to tuning. There are four models to tune, because we have two datasets and two predictors. The predictors are basal area growth rate and biomass growth rate. Also, we have a raw dataset, and another that was built from predictive mean matching - the past examinations suggest they are about the same, but I'd like to ensure that the converge on model predictions. 
 
 
 
 ``` {r message = FALSE}
-# drop variables with more than 2 missing values - 
-# to compare across models, we can't have any missing rows
-# first, I will remove problem variables  - next I will remove any rows (from the raw data)
-# that are have missig values
-missing.rf <- names(which(sapply(colnames(rgr_msh_na), function (x) {sum(is.na(rgr_msh_na[,x]))/nrow(rgr_msh_na)<0.01})))
-rgr_msh <- rgr_msh[,missing.rf]
-rgr_msh_na <- na.omit(rgr_msh_na[,missing.rf])
-
 # need a training and test set assess the performance of the model
 # a 70:30 split is typical
 # first, I will work with the imputed data
 set.seed(634)
 split_train_test <-
   initial_split(
-    data = rgr_msh, 
-    prop = 0.70) 
-train_rgr_msh <- split_train_test %>% training() 
-test_dta_msh  <- split_train_test %>% testing()
-
-# now, I will work with the raw data
-set.seed(634)
-split_train_test_na <-
-  initial_split(
     data = rgr_msh_na, 
     prop = 0.70) 
-train_rgr_msh_na <- split_train_test_na %>% training() 
-test_dta_msh_na  <- split_train_test_na %>% testing()
 
-```
-
-## Building the random forest modelS
-
-The first step in building the random forest models is to tuning. There are four models to tune, because we have two datasets and two predictors. The predictors are basal area growth rate and biomass growth rate. Also, we have a raw dataset, and another that was built from predictive mean matching - the past examinations suggest they are about the same, but I'd like to ensure that the converge on model predictions. 
-
-``` {r message = FALSE}
-# first, we must tune the random forest model. i will use a 80:20 split.
-# i will tune for the number of predictors that will be randomly pooled/available
-# for splitting at each node (mtry)
-# i will also tune min_n, which is minimum number of observation required to split a node further
-
-# because there are two predictors with 2 different versions (imputed vs raw) 
-# I will need to validate/build 4 models
-
-cores <- parallel::detectCores()
-randomforest_mod <- 
-  rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>% 
-  set_engine("ranger", num.threads = cores) %>% 
-  set_mode("regression")
-
-# need split the training data to tune the model (validation)
-set.seed(345)
-val_set_bai <- validation_split(train_rgr_msh[,-(which(names(train_rgr_msh)=="BIO_GR"))],  
-                            prop = 0.80)
-val_set_bio <- validation_split(train_rgr_msh[,-(which(names(train_rgr_msh)=="BAI_GR"))],  
-                            prop = 0.80)
-
-val_set_bai_na <- validation_split(train_rgr_msh_na[,-(which(names(train_rgr_msh_na)=="BIO_GR"))],  
-                            prop = 0.80)
-val_set_bio_na <- validation_split(train_rgr_msh_na[,-(which(names(train_rgr_msh_na)=="BAI_GR"))],  
-                            prop = 0.80)
-
-#### making a recipe for what goes into each of the four models
-# imputed data
-randomforest_recipe_bai <- 
-  recipe(BAI_GR ~ ., data = train_rgr_msh[,-(which(names(train_rgr_msh)=="BIO_GR"))])
-randomforest_recipe_bio <- 
-  recipe(BIO_GR ~ ., data = train_rgr_msh[,-(which(names(train_rgr_msh)=="BAI_GR"))])
-
-randomforest_recipe_bai_na <- 
-  recipe(BAI_GR ~ ., data = train_rgr_msh_na[,-(which(names(train_rgr_msh_na)=="BIO_GR"))])
-randomforest_recipe_bio_na <- 
-  recipe(BIO_GR ~ ., data = train_rgr_msh_na[,-(which(names(train_rgr_msh_na)=="BAI_GR"))])
-
-# the workflow helps in given steps in the tuning process
-# imputed data
-randomforest_workflow_bai <- 
-  workflow() %>% 
-  add_model(randomforest_mod) %>% 
-  add_recipe(randomforest_recipe_bai)
-randomforest_workflow_bio <- 
-  workflow() %>% 
-  add_model(randomforest_mod) %>% 
-  add_recipe(randomforest_recipe_bio)
-
-randomforest_workflow_bai_na <- 
-  workflow() %>% 
-  add_model(randomforest_mod) %>% 
-  add_recipe(randomforest_recipe_bai_na)
-randomforest_workflow_bio_na <- 
-  workflow() %>% 
-  add_model(randomforest_mod) %>% 
-  add_recipe(randomforest_recipe_bio_na)
-
-# now, we can set the terms for what we use to validate
-# imputed data
-randomforest_res_bai <- 
-  randomforest_workflow_bai %>% 
-  tune_grid(val_set_bai,
-            grid = 10,
-            control = control_grid(save_pred = TRUE),
-            metrics = metric_set(rmse))
-randomforest_res_bio <- 
-  randomforest_workflow_bio %>% 
-  tune_grid(val_set_bio,
-            grid = 10,
-            control = control_grid(save_pred = TRUE),
-            metrics = metric_set(rmse))
-
-randomforest_res_bai_na <- 
-  randomforest_workflow_bai_na %>% 
-  tune_grid(val_set_bai_na,
-            grid = 10,
-            control = control_grid(save_pred = TRUE),
-            metrics = metric_set(rmse))
-randomforest_res_bio_na <- 
-  randomforest_workflow_bio_na %>% 
-  tune_grid(val_set_bio_na,
-            grid = 10,
-            control = control_grid(save_pred = TRUE),
-            metrics = metric_set(rmse))
-
-# now, we can look at the model performance
-# Basal Area Growth Rate
-randomforest_res_bai %>% 
-  show_best(metric = "rmse")
-
-randomforest_res_bai_na %>% 
-  show_best(metric = "rmse")
-
-# Biomass Growth Rate
-randomforest_res_bio %>% 
-  show_best(metric = "rmse")
-
-randomforest_res_bio_na %>% 
-  show_best(metric = "rmse")
+rgr_msh_na <-
+  split_train_test %>% training() %>% mutate(Group = "Train")%>%
+  bind_rows(split_train_test %>% testing() %>% mutate(Group = "Test"))
 
 ```
 
 
-```{r message = FALSE}
 
-random_forest_regressor_bai <-
-  rand_forest(mtry = 24, min_n = 18, trees = 1000) %>% 
-  set_engine("ranger", num.threads = cores, importance = "impurity") %>% 
-  set_mode("regression") %>% 
-  fit(BAI_GR ~ ., data = train_rgr_msh[,-(which(names(train_rgr_msh)=="BIO_GR"))])
-
-random_forest_regressor_bai_na <-
-  rand_forest(mtry = 24, min_n = 29, trees = 1000) %>% 
-  set_engine("ranger", num.threads = cores, importance = "impurity") %>% 
-  set_mode("regression") %>% 
-  fit(BAI_GR ~ ., data = train_rgr_msh_na[,-(which(names(train_rgr_msh_na)=="BIO_GR"))])
+```{r include=FALSE}
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(-SampleID,-BIO_GR,-Group, -Height.DBH.Ratio, -Ktwig, 
+                   -Twig.Diameter, -Leaf.Mass.Fraction, -Root.Wood.Density ),
+          here("data/RGRH20BAI.csv"))
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(-SampleID,-BAI_GR,-Group),
+          here("data/RGRH20BOI.csv"))
 
 
-random_forest_regressor_bio <-
-  rand_forest(mtry = 26, min_n = 20, trees = 1000) %>% 
-  set_engine("ranger", num.threads = cores, importance = "impurity") %>% 
-  set_mode("regression") %>% 
-  fit(BIO_GR ~ ., data = train_rgr_msh[,-(which(names(train_rgr_msh)=="BAI_GR"))])
-random_forest_regressor_bio_na <-
-  rand_forest(mtry = 17, min_n = 4, trees = 1000) %>% 
-  set_engine("ranger", num.threads = cores, importance = "impurity") %>% 
-  set_mode("regression") %>% 
-  fit(BIO_GR ~ ., data = train_rgr_msh_na[,-(which(names(train_rgr_msh_na)=="BAI_GR"))])
-
-# is the relative importance of predictors the same as with the logistic regression?
-random_forest_regressor_bai%>%
-  vip(geom = "point")
-random_forest_regressor_bai_na%>%
-  vip(geom = "point")
-
-random_forest_regressor_bio%>%
-  vip(geom = "point")
-
-random_forest_regressor_bio_na%>%
-  vip(geom = "point")
 ```
-```{r echo=FALSE}
 
-png(here("notebooks/figures/BAI_RF_Imputed.png"), width = 10 , height = 5, units = 'in', res = 600)
-random_forest_regressor_bai%>%
-  vip(geom = "point")
-dev.off()
 
-png(here("notebooks/figures/BAI_RF_Raw.png"), width = 10 , height = 5, units = 'in', res = 600)
-random_forest_regressor_bai_na%>%
-  vip(geom = "point")
-dev.off()
-
-png(here("notebooks/figures/BIO_RF_Imputed.png"),  width = 10 , height = 5, units = 'in', res = 600)
-random_forest_regressor_bio%>%
-  vip(geom = "point")
-dev.off()
-
-png(here("notebooks/figures/BIO_RF_Raw.png"),  width = 10 , height = 5, units = 'in', res = 600)
-random_forest_regressor_bio_na%>%
-  vip(geom = "point")
-dev.off()
+```{r eval=FALSE}
+startTime <- Sys.time()
+gbmParmBAI <-
+  h20_gbm_tune(path = here("data/RGRH20BAI.csv"),
+             status = "BAI_GR",
+             type = "integar")
+endTime <- Sys.time()
+endTime-startTime
 ```
+
+```{r eval=FALSE}
+startTime <- Sys.time()
+gbmParmBIO <-
+  h20_gbm_tune(path = here("data/RGRH20BOI.csv"),
+             status = "BIO_GR",
+             type = "integar")
+endTime <- Sys.time()
+endTime-startTime
+```
+
+
+```{r include=FALSE}
+gbmParmBAI
+gbmParmBIO
+```
+
+
+```{r eval = FALSE}
+set.seed(123)
+gbm_bai <-
+  gbm(BAI_GR ~ .,
+      data = 
+        rgr_msh_na %>% filter(Group == "Train")%>%
+        select(-SampleID,-BIO_GR,-Group),
+      n.trees = 1000,
+      interaction.depth = 16, #max depth
+      shrinkage = 0.05, #learning rate
+      n.minobsinnode = 30, #col_sample_rate
+      bag.fraction = 0.66, # sample_rate,
+      verbose = FALSE,
+      n.cores = NULL,
+      cv.folds = 5)
+set.seed(123)
+gbm_bio <-
+  gbm(BIO_GR ~ .,
+      data = 
+        rgr_msh_na %>% filter(Group == "Train")%>%
+        select(-SampleID,-BAI_GR,-Group),
+      n.trees = 1000,
+      interaction.depth = 11, #max depth
+      shrinkage = 0.05, #learning rate
+      n.minobsinnode = 27, #col_sample_rate
+      bag.fraction = 0.50, # sample_rate,
+      verbose = FALSE,
+      n.cores = NULL,
+      cv.folds = 5)
+```
+
+```{r include=FALSE}
+BestIterBAI <- gbm.perf(gbm_bai, plot.it = FALSE, method = "cv")
+BestIterBIO <- gbm.perf(gbm_bio, plot.it = FALSE, method = "cv")
+
+```
+
+
+```{r echo=FALSE, message=FALSE}
+
+png(here("outputs/BAIGBMImportance.png"), width = 10 , height = 5, units = 'in', res = 600)
+gbm_bai%>%
+  vip(geom = "point", num_features = 25)
+dev.off()
+
+png(here("outputs/BIOGBMImportance.png"), width = 10 , height = 5, units = 'in', res = 600)
+gbm_bio%>%
+  vip(geom = "point",  num_features = 25)
+dev.off()
+
+
+```
+
+```{r, echo=FALSE, out.width = "50%", fig.pos="h"}
+
+include_graphics(here("outputs/BAIGBMImportance.png"))
+include_graphics(here("outputs/BIOGBMImportance.png"))
+
+```
+
+
+After some thought, we realized that using imputed data to measure growth rate was not a good move because measures like tree age/height may be incorrect. Also, the basal growth rate is a better go because:
+1. Julie measured it directly, and so there is less "noise"
+2. It does not require us to make assumptions about the tree growth form (cylindrical vs cone)
+
+Next, I will change for the error rates from the basal growth rate model on the raw data.
+
+```{r}
+# now, I will compare the RSME between the training and test data
+# I am hoping that there is not really much of a difference between the two
+# if there is (much higher for the test)
+# I will be concerned about overfitting - meaning the model does not generalize well
+predictions_gbm_bai_train <- 
+  gbm_bai %>%
+  predict(new_data = rgr_msh_na %>% filter(Group == "Test")) %>%
+  bind_cols(rgr_msh_na %>% filter(Group == "Test") %>% select(BAI_GR))
+predictions_gbm_bai_test <- 
+   gbm_bio %>%
+  predict(new_data = rgr_msh_na %>% filter(Group == "Test")) %>%
+  bind_cols(rgr_msh_na %>% filter(Group == "Test") %>% select(BIO_GR))
+
+
+metrics(predictions_gbm_bai_train, truth = "BAI_GR", estimate = .pred)
+metrics(predictions_rf_bai_test, truth = "BIO_GR", estimate = .pred)
+# they are pretty similar (RSME) - so I am not concerned about overfitting
+
+```
+
+# Conclusion
+
+We will use the basal growth rate as the response variable, going forward, for the glm. We will not use the imputed data. One issue is that some of the variables that went into estimating biomass growth rate had missing values, so the imputed data gave results that did not make much biological sense. Also, biomass growth rate makes a bunch of assumptions about each individual tree, which we are not confident is applicable  to all trees in the dataset (different species with different ages).
+
+There's a concern that sampling date has affacted some of the meausred trait values - to deal with this, we will run a linear regression on each trait vs sampling date. If there is a signicabt effect, we will only use the residuals vs the raw data. 

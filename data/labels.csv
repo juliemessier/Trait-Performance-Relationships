@@ -1,74 +1,79 @@
-Feature,Label,Class,Notes
-Height.DBH.Ratio,Height to Diameter-at-breast-height ratio,1,These are plant traits
-Estem,Modulus of Elasticity for Stem,1,"Modulus of elasticity is also called ""Young's Modulus"""
-Etwig,Modulus of Elasticity for Twigs,3,We can ignore that one. It Modulus of elasticity doesn't make much sense in the context of a branch
-Branching.Distance,Branching Distance,1,Average distance between bifurcations in a branch
-Twig.Diameter,Twig Diameter,1,Note that I use 'twig' and 'branch' interchangeably
-Twig.Wood.Density,Twig Wood Density,1,
-Stem.Wood.Density,Stem Wood Density,1,
-Leaf.Mass.Fraction,Leaf Mass Fraction,1,
-Leaf.Area,Leaf Area,1,Average area of a single leaf
-LMA,Leaf Mass per Area,1,
-LCC,Leaf Carbon Concentration,1,
-LNC,Leaf Carbon Concentration,1,
-LPC,Leaf Phosphorus Concentration,1,
-d15N,Delta 15N,1,In leaves - nitrogen isotope ratio
-t.b2,Thickness to Span Ratio,1,reflects vessel resistance to implosion
-Ks,Conductivity per Sapwood Area,1,
-Ktwig,Conductivity per Branch,1,
-Huber.Value,Huber Value,1,Ratio of Total leaf area on a branch to the cross-sectional area of the branch
-X.Lum,Percent Lumen,1,
-VD,Vessel Diameter,1,
-X.Sapwood,Percent Sapwood,1,
-d13C,Delta13C ,1,In leaves - carbon isotope ratio - reflects Water Use Efficiency
-Biomass5,Biomass from 2006 to 2011,0,This is a response variable = g/cm averaged over the last 5 years of full growth (2007-2011 inclusively)
-pcent.max.Bio5,Percentage Maximum of Biomass5 per species,0,This is a response variable
-Symmetric.Competition,Symmetric Competition,2,These are environmental variables
-Asymmetric.Competition,Asymmetric Competition,2,
-Soil.Humidity,Soil Humidity,2,
-pH,Soil pH,2,
-Organic.C,Soil Organic Carbon,2,
-N,Soil Nitrogen,2,
-P,Soil Phosphorus,2,
-K,Soil Postassium,2,
-Ca,Soil Calcium,2,
-Mg,Soil Magnesium,2,
-Soil.Depth,Soil Depth,2,
-Slope,Slope,2,
-North.Aspect,Northern Aspect,2,
-East.Aspect,Eastern Aspect,2,
-Elevation,Elevation,2,
-Summer.Max,Summer Maximum Temperature,2,
-Fall.Min,Fall Minimum Temperature,2,
-Mean.Temp,Mean Temperature,2,This is the mean temp between June2012&Dec2014 (when ibuttons were in the field)
-X.Canopy.Opening,Percent Canopy Opening,2,
-SampleID,Sample Identification,0,
-Species,Species,0,covariate of interest
-Site,Site,0,covariate of interest
-Tree.Age,Tree Age,0,changed to 0 - covariate of interest
-Tree.Height,Tree Height,0,
-julian.date.2011,Julian Date in 2011,2,This covariate is the date at which the leaf samples were collected - used to correct for phenological effects on traits
-Branch.Height,Branch Height,0,This covariate is the height at which my branch sample was taken from the tree. Not really a trait. Used to see if it affected d13C values because some papers say it will. But it didn't in my data
-SRL,Specific Root Length,1,
-Root.Wood.Density,Root Wood Density,1,
-Twig.branching.angle,Twig Branching Angle,1,
-Hmax,Maximum Species Height based on Literature,1,species-level variable
-Shade.Tolerance,Species Shade Tolerance,1,species-level variable
-Drought.Tolerance,Species Drought Tolerance,1,species-level variable
-WaterLogging.Tolerance,Species WaterLogging Tolerance,1,species-level variable
-DBH.DGH,DBH:DGH,3,
-Leaf.Area.Ratio,Leaf Area Ratio,3,
-Branch.Dry.Mass,Branch Dry Mass,3,means nothing
-Leaf.Thickness,Leaf Thickness,3,"too correlated with LMA, so I excluded it manually - this one is of ecophysiological interest though, so we might want to consider including it back in."
-Leaf.Density,Leaf Density,3,"dimensionally related to LMA and leaf thickness, so I excluded it manually"
-C.N,Ratio of Carbon to Nitrogen,3,dimensionally repetitive with LCC and LNC
-C.P,Ratio of Carbon to Phosphorus,3,dimensionally repetitite with LCC and LPC
-N.P,Ratio of Nitrogen to Phosphorus,3,dimensionally repetitive with LNC and LPC
-Kl,Conductivity per Lumen Area,3,"too correlated with Ks, so I excluded it manually"
-Kleaf,Conductivity per total leaf area on branch,3,"too correlated with Ktwig, so I excluded it manually"
-Biomass1,g/cm of 2011,3,"too correlated with Bio5 - We could try it as an alternate response variable to Biomass 5, to see if the full model fits better. Since many traits are plastic, maybe they only predict growth of the last year?"
-pcent.max.Bio1,Percentage Maximum of Biomass 1 per species,3,Too correlated with X.max.Bio5 so I excluded it manually
-Total.Transmitted.Light,Total Transmitted Light,3,too corelated with % Canopy opening so I excluded it manually
-Porosity,Porosity,3,
-Porosity_Diffuse,Diffused Porosity,1,
-Porosity_Ring,Ring Porosity,1,
+Feature,Label,Class,ClassDescription,Notes
+Biomass5,Biomass from 2006 to 2011,0,Exclude - Strong Covariance,This is a response variable = g/cm averaged over the last 5 years of full growth (2007-2011 inclusively)
+pcent.max.Bio5,Percentage Maximum of Biomass5 Per species,0,Exclude - Strong Covariance,This is a response variable
+DBH.DGH,DBH:DGH,0,Exclude - Strong Covariance,
+Leaf.Area.Ratio,Leaf Area Ratio,0,Exclude - Strong Covariance,
+Branch.Dry.Mass,Branch Dry Mass,0,Exclude - Strong Covariance,means nothing
+Leaf.Thickness,Leaf Thickness,0,Exclude - Strong Covariance,"too correlated with LMA, so I excluded it manually - this one is of ecophysiological interest though, so we might want to consider including it back in."
+Leaf.Density,Leaf Density,0,Exclude - Strong Covariance,"dimensionally related to LMA and leaf thickness, so I excluded it manually"
+C.N,Ratio of Carbon to Nitrogen,0,Exclude - Strong Covariance,dimensionally repetitive with LCC and LNC
+C.P,Ratio of Carbon to Phosphorus,0,Exclude - Strong Covariance,dimensionally repetitite with LCC and LPC
+N.P,Ratio of Nitrogen to Phosphorus,0,Exclude - Strong Covariance,dimensionally repetitive with LNC and LPC
+Kl,Conductivity per Lumen Area,0,Exclude - Strong Covariance,"too correlated with Ks, so I excluded it manually"
+Kleaf,Conductivity per total leaf area on branch,0,Exclude - Strong Covariance,"too correlated with Ktwig, so I excluded it manually"
+Biomass1,2011 Biomass (g/cm),0,Exclude - Strong Covariance,"too correlated with Bio5 - We could try it as an alternate response variable to Biomass 5, to see if the full model fits better. Since many traits are plastic, maybe they only predict growth of the last year?"
+pcent.max.Bio1,Percentage Maximum of Biomass 1 Per Species,0,Exclude - Strong Covariance,Too correlated with X.max.Bio5 so I excluded it manually
+Total.Transmitted.Light,Total Transmitted Light,0,Exclude - Strong Covariance,too corelated with % Canopy opening so I excluded it manually
+Porosity,Porosity,0,Exclude - Strong Covariance,
+Estem,Modulus of Elasticity for Stem,1,Aboveground Plant Traits (Include),"Modulus of elasticity is also called ""Young's Modulus"""
+Branching.Distance,Branching Distance,1,Aboveground Plant Traits (Include),Average distance between bifurcations in a branch
+Stem.Wood.Density,Stem Wood Density,1,Aboveground Plant Traits (Include),
+Leaf.Area,Leaf Area,1,Aboveground Plant Traits (Include),Average area of a single leaf
+LMA,Leaf Mass per Area,1,Aboveground Plant Traits (Include),
+LCC,Leaf Carbon Concentration,1,Aboveground Plant Traits (Include),
+LNC,Leaf Nitrogen Concentration,1,Aboveground Plant Traits (Include),
+LPC,Leaf Phosphorus Concentration,1,Aboveground Plant Traits (Include),
+d15N,Delta 15N,1,Aboveground Plant Traits (Include),In leaves - nitrogen isotope ratio
+t.b2,Thickness to Span Ratio,1,Aboveground Plant Traits (Include),reflects vessel resistance to implosion
+Ks,Conductivity per Sapwood Area,1,Aboveground Plant Traits (Include),
+Ktwig,Conductivity per Branch,1,Aboveground Plant Traits (Include),
+Huber.Value,Huber Value,1,Aboveground Plant Traits (Include),Ratio of Total leaf area on a branch to the cross-sectional area of the branch
+X.Lum,Percent Lumen,1,Aboveground Plant Traits (Include),
+VD,Vessel Diameter,1,Aboveground Plant Traits (Include),
+X.Sapwood,Percent Sapwood,1,Aboveground Plant Traits (Include),
+d13C,Delta13C,1,Aboveground Plant Traits (Include),In leaves - carbon isotope ratio - reflects Water Use Efficiency
+Tree.Age,Tree Age,3,Species-Level Variable (Include GBM),Tree-level Covariates
+Porosity_Diffuse,Diffused Porosity,1,,
+Porosity_Ring,Ring Porosity,1,,
+Symmetric.Competition,Symmetric Competition,2,Environmental Variables (Include PCA),These are environmental variables
+Asymmetric.Competition,Asymmetric Competition,2,Environmental Variables (Include PCA),
+Soil.Humidity,Soil Humidity,2,Environmental Variables (Include PCA),
+SoilpH,Soil pH,2,Environmental Variables (Include PCA),
+Organic.C,Soil Organic Carbon,2,Environmental Variables (Include PCA),
+N,Soil Nitrogen,2,Environmental Variables (Include PCA),
+P,Soil Phosphorus,2,Environmental Variables (Include PCA),
+K,Soil Postassium,2,Environmental Variables (Include PCA),
+Ca,Soil Calcium,2,Environmental Variables (Include PCA),
+Mg,Soil Magnesium,2,Environmental Variables (Include PCA),
+Soil.Depth,Soil Depth,2,Environmental Variables (Include PCA),
+Slope,Slope,2,Environmental Variables (Include PCA),
+North.Aspect,Northern Aspect,2,Environmental Variables (Include PCA),
+East.Aspect,Eastern Aspect,2,Environmental Variables (Include PCA),
+Elevation,Elevation,2,Environmental Variables (Include PCA),
+Summer.Max,Summer Maximum Temperature,2,Environmental Variables (Include PCA),
+Fall.Min,Fall Minimum Temperature,2,Environmental Variables (Include PCA),
+Mean.Temp,Mean Temperature,2,Environmental Variables (Include PCA),This is the mean temp between June2012&Dec2014 (when ibuttons were in the field)
+X.Canopy.Opening,Percent Canopy Opening,2,Environmental Variables (Include PCA),
+Hmax,Maximum Species Height based on Literature,3,Species-Level Variable (Include Dredge),species-level variable
+Shade.Tolerance,Species Shade Tolerance,3,Species-Level Variable (Include Dredge),species-level variable
+Drought.Tolerance,Species Drought Tolerance,3,Species-Level Variable (Include Dredge),species-level variable
+WaterLogging.Tolerance,Species WaterLogging Tolerance,3,Species-Level Variable (Include Dredge),species-level variable
+SampleID,Sample Identification,7,Species-Level Variable (Information Keep),
+Species,Species,7,Species-Level Variable (Information Keep),Tree-level Covariates
+Site,Site,7,Species-Level Variable (Information Keep),Tree-level Covariates
+Tree.Height,Tree Height,4,Species-Level Variable (Exclude Dredge + GBM),Tree-level Covariates
+Branch.Height,Branch Height,4,Species-Level Variable (Exclude Dredge + GBM),This covariate is the height at which my branch sample was taken from the tree. Not really a trait. Used to see if it affected d13C values because some papers say it will. But it didn't in my data
+SRL,Specific Root Length,4,Species-Level Variable (Exclude Dredge + GBM),
+Root.Wood.Density,Root Wood Density,4,Species-Level Variable (Exclude Dredge + GBM),
+Twig.branching.angle,Twig Branching Angle,4,Species-Level Variable (Exclude Dredge + GBM),Tree-level Covariates
+Height.DBH.Ratio,Height to Diameter-at-breast-height ratio,6,Aboveground Plant Traits (Exclude),These are plant traits
+Etwig,Modulus of Elasticity for Twigs,6,Aboveground Plant Traits (Exclude),We can ignore that one. It Modulus of elasticity doesn't make much sense in the context of a branch
+Twig.Diameter,Twig Diameter,6,Aboveground Plant Traits (Exclude),Note that I use 'twig' and 'branch' interchangeably
+Twig.Wood.Density,Twig Wood Density,6,Aboveground Plant Traits (Exclude),
+Leaf.Mass.Fraction,Leaf Mass Fraction,6,Aboveground Plant Traits (Exclude),
+julian.date.2011,Julian Date in 2011,5,Species-Level Variable (Remove Influence on Trees),This covariate is the date at which the leaf samples were collected - used to correct for phenological effects on traits
+Soil.Fertility,Soil Fertility,,,
+Light,Light,,,
+Temperature,Temperature,,,
+pH,pH,,,
+Soil.Humidity.Depth ,Soil Humidity (Depth) ,,,
