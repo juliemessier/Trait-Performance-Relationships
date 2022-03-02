@@ -51,19 +51,21 @@ A gradient boosted machine/model is a machine learning model that uses decision 
 
 A decision tree first starts with all of the observations, then, from the variables provided, it tries to figure out which variable split would result in the "purest" groupings of the data. So, in this case, it would try to place rows with higher growth rates in one node, and those with lower growth rates in another node. 
 
-GBMs are an ensemble of decision trees, nut they are fit sequentially. We call GBMs an ensemble of weak learners as each subsequent tree is an attempt to correct the errors of the previous tree. Thus, while one tree, by itself, can not describe the relationships, with the use of all the trees, we can. Below is a figure by Bradly Bohemke that attempts to illustrate how each subsequent tree improvs the fit on the data.
+GBMs are an ensemble of decision trees, nut they are fit sequentially. We call GBMs an ensemble of weak learners as each subsequent tree is an attempt to correct the errors of the previous tree. Thus, while one tree, by itself, can not describe the relationships, with the use of all the trees, we can. Below is a figure by Bradly Bohemke that attempts to illustrate how each subsequent tree improves the fit on the data.
+![Boosted regression decision stumps as 0-1024 successive trees are added](https://bradleyboehmke.github.io/HOML/10-gradient-boosting_files/figure-html/boosting-in-action-1.png)
 
 ## Changes made to raw data
 
 Below is a list of the changes made to the raw data:
 
-* Environental varibles - these are the princple compoeets (1-5) from a PCA that was fit on all the enevirobental vairbles. We visialsed the PCA and used the ageinvectors to help figure which envonntal conditn best explained that PC. There were 5 - `Soil Fertility, Light, Temperature,  pH, Soil.Humidity.Depth, and Slope`. 
-* Remove the influence of sampling date - some of the vairbles vary with when they were measured. Assuing a linear relationship between sample date and the vairbles, we extracted the residieal from a `lm` model with Variable ~ Sample date when the pvalue<0.05. This realuted in changes for the following vairbles - `Estem, Branching Distance, Stem Wood Density,  LMA, LNC, d15N, Ks, X.Sapwood, d13C, Soil.Fertility, Light, Temperature, pH`  
+* Environmental variables - these are the principle components (1-5) from a PCA that was fit on all the environmental variables. We visualized the PCA and used the eginvectors to help figure which environmental condition best explained that PC. There were 5 - `Soil Fertility, Light, Temperature,  pH, Soil.Humidity.Depth, and Slope`. 
+* Remove the influence of sampling date - some of the variables vary with when they were measured. Assuming a linear relationship between sample date and the variables, we extracted the residual from a `lm` model with Variable ~ Sample date when the value<0.05. This resulted in changes for the following variables - `Estem, Branching Distance, Stem Wood Density,  LMA, LNC, d15N, Ks, X.Sapwood, d13C, Soil.Fertility, Light, Temperature, pH`  
 
 
 # Data Preparation
 
-Assuming that the first 10000 rows describes the data well, I can use col_types = cols(). If not, I will need to specify the class of each column.
+First, we can import data and select the labels needed for plotting later. 
+
 ```{r error = FALSE, message=FALSE}
 # prior error suggests that there are single quotation marks used to parse numbers
 # I specify that we should read those as a thousand separator
@@ -198,7 +200,7 @@ summary(gbm_regressor_bio_residuals, plotit = FALSE)%>%
 
 ### Partial Dependence{.tabset}
 
-Assessing how, when we hold everything else constant, what the realtionships are betweern growth rate and the predictor.
+Assessing how, when we hold everything else constant, what the relationships are between growth rate and the predictor.
 
 ```{r echo=FALSE}
 PDP <-
@@ -238,7 +240,7 @@ for(i in 1:length(PDPNames)){
 
 ### Performance - True Traits Value
 
-How does the model perform when we use the true indiivual trait value?
+How does the model perform when we use the true individual trait value?
 
 ```{r echo=FALSE}
 predictions_gbm_bio_train <- 
@@ -519,7 +521,7 @@ summary(gbm_regressor_bai_residuals, plotit = FALSE)%>%
 
 ### Partial Dependence{.tabset}
 
-Assessing how, when we hold everything else constant, what the realtionships are betweern growth rate and the predictor.
+Assessing how, when we hold everything else constant, what the relationships are between growth rate and the predictor.
 
 ```{r echo=FALSE}
 PDP <-
@@ -559,7 +561,7 @@ for(i in 1:length(PDPNames)){
 
 ### Performance - True Traits Value
 
-How does the model perform when we use the true indiivual trait value?
+How does the model perform when we use the true individual trait value?
 
 ```{r echo=FALSE}
 predictions_gbm_bai_train <- 
@@ -613,7 +615,7 @@ DT::datatable(metrics(predictions_gbm_bai_train, truth = "BAI_GR", estimate = Pr
 
 ### Interactions | Table
 
-Let's explore the interactcions in these data.
+Let's explore the interactions in these data.
 
 ```{r include=FALSE, eval=FALSE}
 exploreinteractionsBAI <-
@@ -1190,6 +1192,8 @@ Finally, we compare the relative importance of the various groups - tree age, pl
 
 ## BAI ~ SpeciesIdentity + TreeAge + EnvironmentalVariables{.tabset}
 
+### Tune Model
+
 ```{r eval=FALSE}
 startTime <- Sys.time()
 gbmParmBAINoDateSpecies <-
@@ -1201,7 +1205,7 @@ endTime-startTime
 
 ```
 
-### Model Paramaerts
+### Model Parameters
 
 First, we look at the best parameters from tuning. 
 
@@ -1365,7 +1369,7 @@ exploreinteractionsBAISpecies <-
 
 
 
-```{r error = FALSE, message=FALSE}
+```{r error = FALSE, message=FALSE, echo=FALSE}
 InteractionsGBMBAISpecies <-
   do.call(rbind,exploreinteractionsBAISpecies) %>%
   filter(Target != Source) %>%
