@@ -19,19 +19,19 @@ Estem,Modulus of Elasticity for Stem,1,Aboveground Plant Traits (Include),"Modul
 Branching.Distance,Branching Distance,1,Aboveground Plant Traits (Include),Average distance between bifurcations in a branch
 Stem.Wood.Density,Stem Wood Density,1,Aboveground Plant Traits (Include),
 Leaf.Area,Leaf Area,1,Aboveground Plant Traits (Include),Average area of a single leaf
-LMA,Leaf Mass per Area,1,Aboveground Plant Traits (Include),
+LMA,Leaf Mass Per Area,1,Aboveground Plant Traits (Include),
 LCC,Leaf Carbon Concentration,1,Aboveground Plant Traits (Include),
 LNC,Leaf Nitrogen Concentration,1,Aboveground Plant Traits (Include),
 LPC,Leaf Phosphorus Concentration,1,Aboveground Plant Traits (Include),
 d15N,Delta 15N,1,Aboveground Plant Traits (Include),In leaves - nitrogen isotope ratio
 t.b2,Thickness to Span Ratio,1,Aboveground Plant Traits (Include),reflects vessel resistance to implosion
-Ks,Conductivity per Sapwood Area,1,Aboveground Plant Traits (Include),
+Ks,Conductivity Per Sapwood Area,1,Aboveground Plant Traits (Include),
 Ktwig,Conductivity per Branch,1,Aboveground Plant Traits (Include),
 Huber.Value,Huber Value,1,Aboveground Plant Traits (Include),Ratio of Total leaf area on a branch to the cross-sectional area of the branch
 X.Lum,Percent Lumen,1,Aboveground Plant Traits (Include),
 VD,Vessel Diameter,1,Aboveground Plant Traits (Include),
 X.Sapwood,Percent Sapwood,1,Aboveground Plant Traits (Include),
-d13C,Delta13C,1,Aboveground Plant Traits (Include),In leaves - carbon isotope ratio - reflects Water Use Efficiency
+d13C,Delta 13C,1,Aboveground Plant Traits (Include),In leaves - carbon isotope ratio - reflects Water Use Efficiency
 Tree.Age,Tree Age,3,Species-Level Variable (Include GBM),Tree-level Covariates
 Porosity_Diffuse,Diffused Porosity,1,,
 Porosity_Ring,Ring Porosity,1,,
