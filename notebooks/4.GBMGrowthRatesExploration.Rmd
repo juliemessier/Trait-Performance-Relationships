@@ -113,11 +113,12 @@ rgr_msh_na <-
 
 ```{r include=FALSE, eval=FALSE}
 write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
-            select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Tree.Age", "BAI_GR"))),
+            select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Tree.Age", 
+                            "BAI_GR", "julian.date.2011"))),
           here("data/RGRH20BAI.csv"))
 
 write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
-            select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Tree.Age", "BIO_GR"))),
+            select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Tree.Age", "BIO_GR", "julian.date.2011"))),
           here("data/RGRH20BIO.csv"))
 ```
 
@@ -1212,11 +1213,12 @@ Finally, we compare the relative importance of the various groups - tree age, pl
 
 
 write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
-            select(any_of(c(EnvironmentalVariablesKeep, "Species", "Tree.Age", "BIO_GR"))),
+            select(any_of(c(EnvironmentalVariablesKeep, "Species", "Tree.Age", "BIO_GR",
+                            "julian.date.2011"))),
           here("data/RGRH20BIOSpecies.csv"))
 
 write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
-            select(any_of(c(EnvironmentalVariablesKeep, "Species", "Tree.Age", "BAI_GR"))),
+            select(any_of(c(EnvironmentalVariablesKeep, "Species", "Tree.Age", "BAI_GR", "julian.date.2011" ))),
           here("data/RGRH20BAISpecies.csv"))
 ```
 
@@ -2251,12 +2253,12 @@ Finally, we compare the relative importance of the various groups - tree age, pl
 ```{r include=FALSE, eval=FALSE}
 write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
             select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Species",
-                            "Tree.Age", "BAI_GR"))),
+                            "Tree.Age", "BAI_GR", "julian.date.2011"))),
           here("data/RGRH20BAISpeciesAgeEP.csv"))
 
 write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
             select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Species",
-                            "Tree.Age", "BIO_GR"))),
+                            "Tree.Age", "BIO_GR", "julian.date.2011"))),
           here("data/RGRH20BIOSpeciesAgeEP.csv"))
 ```
 

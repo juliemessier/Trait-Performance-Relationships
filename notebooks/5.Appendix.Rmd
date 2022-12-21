@@ -259,7 +259,7 @@ PlantTraitsKeep <- labels_rgr_msh %>% filter(Class == 1) %>% select(Feature) %>%
 EnvironmentalVariablesKeep <- c( "Soil.Fertility", "Light", "Temperature",  
                                     "pH", "Soil.Humidity.Depth ", "Slope")
 OthersKeep <- labels_rgr_msh %>% filter(Class%in% c(3,4, 5,7) )%>% select(Feature) %>% reduce(c) 
-OthersKeep <- c("SampleID", "Site", "Species", "julian.date.2011", 
+OthersKeep <- c("SampleID", "Site", "Species",  "julian.date.2011",
                 OthersKeep[!OthersKeep%in% c("SampleID", "Site", "Species", "julian.date.2011")])
 ```
 
@@ -299,6 +299,10 @@ We compared the fit of three used a gradient boosted models to  determine how en
 First, we look at the best parameters from tuning. 
 
 ```{r eval=FALSE, echo=FALSE}
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Tree.Age", 
+                            "BAI_GR", "julian.date.2011"))),
+          here("data/RGRH20BAI.csv"))
 # training the model using H20
 startTime <- Sys.time()
 gbmParmBAINoDate <-
@@ -326,12 +330,12 @@ gbm_regressor_bai_residuals <-
   gbm(BAI_GR ~ .,
       data = 
         rgr_msh_na %>% filter(Group == "Train")%>% filter(!is.na(BAI_GR))%>%
-        select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Tree.Age", "BAI_GR"))),
+        select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Tree.Age", "BAI_GR", "julian.date.2011"))),
       n.trees = 1000,
-      interaction.depth = 6, #max depth 
+      interaction.depth = 11, #max depth 
       shrinkage = 0.05, #learning rate
       n.minobsinnode = 10, #col_sample_rate 
-      bag.fraction = 0.33, # sample_rate,
+      bag.fraction = 0.49, # sample_rate,
       verbose = FALSE,
       n.cores = NULL,
       cv.folds = 5)
@@ -353,6 +357,7 @@ summary(gbm_regressor_bai_residuals, plotit = FALSE)%>%
          Class = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
                            Feature %in% PlantTraitsKeep ~ "Plant Traits",
                            Feature %in% "Tree.Age" ~ "Tree Age",
+                           Feature %in% "julian.date.2011" ~ "Julian Date",
                            TRUE ~ "Environmental Conditions")) %>%
   select(-var, rel.inf)%>%
   left_join(labels_rgr_msh %>% select(Feature, Label), by = c("Feature" = "Feature"))%>%
@@ -377,6 +382,7 @@ summary(gbm_regressor_bai_residuals, plotit = FALSE)%>%
          Class = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
                            Feature %in% PlantTraitsKeep ~ "Plant Traits",
                            Feature %in% "Tree.Age" ~ "Tree Age",
+                           Feature %in% "julian.date.2011" ~ "Julian Date",
                            TRUE ~ "Environmental Conditions")) %>%
   select(-var, rel.inf)%>%
   left_join(labels_rgr_msh %>% select(Feature, Label), by = c("Feature" = "Feature"))%>%
@@ -516,18 +522,23 @@ DT::datatable(InteractionsGBMBAI %>% arrange(desc(Value)))
 kruskal.test(Value ~ Class, data = 
      InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
      filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+       filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
      mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
-                                    Target %in% PlantTraitsKeep ~ "Plant Traits",
-                                    Target %in% "Tree.Age" ~ "Tree Age",
-                                    TRUE ~ "Environmental Conditions"),
+                           Target %in% PlantTraitsKeep ~ "Plant Traits",
+                           Target %in% "Tree.Age" ~ "Tree Age",
+                           Target %in% "julian.date.2011" ~ "Julian Date",
+                           TRUE ~ "Environmental Conditions"),
             SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
-                                    Source %in% PlantTraitsKeep ~ "Plant Traits",
-                                    Source %in% "Tree.Age" ~ "Tree Age",
-                                    TRUE ~ "Environmental Conditions"),
-            Class = paste0(TargetGroup, ":", SourceGroup)
-     ) %>%
+                           Source %in% PlantTraitsKeep ~ "Plant Traits",
+                           Source %in% "Tree.Age" ~ "Tree Age",
+                           Source %in% "julian.date.2011" ~ "Julian Date",
+                           TRUE ~ "Environmental Conditions"),
+      Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         ) %>%
        group_by(Class) %>%
-  top_n(10, Value))
+  top_n(15, Value))
 
 ```
 
@@ -536,16 +547,21 @@ kruskal.test(Value ~ Class, data =
 FSA::dunnTest(Value ~ Class, data = 
      InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
      filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+       filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
      mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
-                                    Target %in% PlantTraitsKeep ~ "Plant Traits",
-                                    Target %in% "Tree.Age" ~ "Tree Age",
-                                    TRUE ~ "Environmental Conditions"),
+                           Target %in% PlantTraitsKeep ~ "Plant Traits",
+                           Target %in% "Tree.Age" ~ "Tree Age",
+                           Target %in% "julian.date.2011" ~ "Julian Date",
+                           TRUE ~ "Environmental Conditions"),
             SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
-                                    Source %in% PlantTraitsKeep ~ "Plant Traits",
-                                    Source %in% "Tree.Age" ~ "Tree Age",
-                                    TRUE ~ "Environmental Conditions"),
-            Class = paste0(TargetGroup, ":", SourceGroup)
-     ) %>%
+                           Source %in% PlantTraitsKeep ~ "Plant Traits",
+                           Source %in% "Tree.Age" ~ "Tree Age",
+                           Source %in% "julian.date.2011" ~ "Julian Date",
+                           TRUE ~ "Environmental Conditions"),
+      Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         ) %>%
        group_by(Class) %>%
   top_n(15, Value)) 
 
@@ -557,16 +573,21 @@ FSA::dunnTest(Value ~ Class, data =
 
 InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
   filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
   #filter(Value >0.1)%>%
   mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Target %in% PlantTraitsKeep ~ "Plant Trait",
                                  Target %in% "Tree.Age" ~ "Tree Age",
+                                 Target %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
          SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Source %in% PlantTraitsKeep ~ "Plant Trait",
                                  Source %in% "Tree.Age" ~ "Tree Age",
+                                 Source %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
-         Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
          )%>%
        group_by(Class) %>%
   top_n(15, Value)%>%
@@ -594,32 +615,42 @@ InteractionsGBMBAI %>% arrange(desc(Value)) %>%
                data = 
                  InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
   filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
   #filter(Value >0.1)%>%
   mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Target %in% PlantTraitsKeep ~ "Plant Trait",
                                  Target %in% "Tree.Age" ~ "Tree Age",
+                                 Target %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
          SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Source %in% PlantTraitsKeep ~ "Plant Trait",
                                  Source %in% "Tree.Age" ~ "Tree Age",
+                                 Source %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
-         Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
          )%>%
        group_by(Class) %>%
   top_n(15, Value), aes(x = Class, y = Value)) + 
   geom_boxplot(data = 
                  InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
   filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+    filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
   #filter(Value >0.1)%>%
   mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Target %in% PlantTraitsKeep ~ "Plant Trait",
                                  Target %in% "Tree.Age" ~ "Tree Age",
+                                 Target %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
          SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Source %in% PlantTraitsKeep ~ "Plant Trait",
                                  Source %in% "Tree.Age" ~ "Tree Age",
+                                 Source %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
-         Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
          )%>%
        group_by(Class) %>%
   top_n(15, Value), aes(x = Class, y = Value),
@@ -643,7 +674,7 @@ ggplot()+
                data = 
                  InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
   filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
-  #filter(Value >0.1)%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
   mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Target %in% PlantTraitsKeep ~ "Plant Trait",
                                  Target %in% "Tree.Age" ~ "Tree Age",
@@ -652,14 +683,16 @@ ggplot()+
                                  Source %in% PlantTraitsKeep ~ "Plant Trait",
                                  Source %in% "Tree.Age" ~ "Tree Age",
                                  TRUE ~ "Environment"),
-         Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
          )%>%
        group_by(Class) %>%
   top_n(15, Value), aes(x = Class, y = Value)) + 
   geom_boxplot(data = 
                  InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
   filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
-  #filter(Value >0.1)%>%
+ filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
   mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Target %in% PlantTraitsKeep ~ "Plant Trait",
                                  Target %in% "Tree.Age" ~ "Tree Age",
@@ -668,7 +701,9 @@ ggplot()+
                                  Source %in% PlantTraitsKeep ~ "Plant Trait",
                                  Source %in% "Tree.Age" ~ "Tree Age",
                                  TRUE ~ "Environment"),
-         Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
          )%>%
        group_by(Class) %>%
   top_n(15, Value), aes(x = Class, y = Value),
@@ -688,7 +723,7 @@ dev.off()
 
 InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
   filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
-  #filter(Value >0.1)%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
   mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Target %in% PlantTraitsKeep ~ "Plant Trait",
                                  Target %in% "Tree.Age" ~ "Tree Age",
@@ -697,7 +732,9 @@ InteractionsGBMBAI %>% arrange(desc(Value)) %>%
                                  Source %in% PlantTraitsKeep ~ "Plant Trait",
                                  Source %in% "Tree.Age" ~ "Tree Age",
                                  TRUE ~ "Environment"),
-         Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
          )%>%
        group_by(Class) %>%
   top_n(15, Value)%>%
@@ -712,7 +749,7 @@ InteractionsGBMBAI %>% arrange(desc(Value)) %>%
 png(paste0(here::here(), "/figures/FigureX4.png"), width = 8, height = 5, res = 600, units = "in" )
 InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
   filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
-  #filter(Value >0.1)%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
   mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Target %in% PlantTraitsKeep ~ "Plant Trait",
                                  Target %in% "Tree.Age" ~ "Tree Age",
@@ -721,7 +758,9 @@ InteractionsGBMBAI %>% arrange(desc(Value)) %>%
                                  Source %in% PlantTraitsKeep ~ "Plant Trait",
                                  Source %in% "Tree.Age" ~ "Tree Age",
                                  TRUE ~ "Environment"),
-         Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
          )%>%
        group_by(Class) %>%
   top_n(15, Value)%>%
@@ -742,7 +781,7 @@ dev.off()
 
 InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
     filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
-    #filter(Value >0.1)%>%
+    filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
     mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                    Target %in% PlantTraitsKeep ~ "Plant Trait",
                                    Target %in% "Tree.Age" ~ "Tree Age",
@@ -751,8 +790,10 @@ InteractionsGBMBAI %>% arrange(desc(Value)) %>%
                                    Source %in% PlantTraitsKeep ~ "Plant Trait",
                                    Source %in% "Tree.Age" ~ "Tree Age",
                                    TRUE ~ "Environment"),
-           Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
-    )%>%
+    Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         )%>%
   left_join(labels_rgr_msh %>% select(Feature, Label) %>% 
               rename(TargetLabel = "Label")%>%
               rename(TargetFeature = "Feature")
@@ -780,7 +821,7 @@ InteractionsGBMBAI %>% arrange(desc(Value)) %>%
 png(paste0(here::here(), "/figures/FigureX3.png"), width = 15, height = 6, res = 600, units = "in" )
 InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
       filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
-      #filter(Value >0.1)%>%
+      filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
       mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                      Target %in% PlantTraitsKeep ~ "Plant Trait",
                                      Target %in% "Tree.Age" ~ "Tree Age",
@@ -789,8 +830,10 @@ InteractionsGBMBAI %>% arrange(desc(Value)) %>%
                                      Source %in% PlantTraitsKeep ~ "Plant Trait",
                                      Source %in% "Tree.Age" ~ "Tree Age",
                                      TRUE ~ "Environment"),
-             Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
-      )%>%
+       Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         )%>%
       left_join(labels_rgr_msh %>% select(Feature, Label) %>% 
                     rename(TargetLabel = "Label")%>%
                     rename(TargetFeature = "Feature")
@@ -908,6 +951,7 @@ Finally, we compare the relative importance of the various groups - tree age, pl
          Group = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
                            Feature %in% PlantTraitsKeep ~ "Plant Traits",
                            Feature %in% "Tree.Age" ~ "Tree Age",
+                           Feature %in% "julian.date.2011" ~ "Julian Date",
                            TRUE ~ "Environmental Conditions")) %>%
   select(-var, -rel.inf)%>%
   group_by(Group) %>%
@@ -931,6 +975,9 @@ Finally, we compare the relative importance of the various groups - tree age, pl
 First, we look at the best parameters from tuning.
 
 ```{r eval=FALSE, echo=FALSE}
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(any_of(c(EnvironmentalVariablesKeep, "Species", "Tree.Age", "BAI_GR", "julian.date.2011" ))),
+          here("data/RGRH20BAISpecies.csv"))
 startTime <- Sys.time()
 gbmParmBAINoDateSpecies <-
   h20_gbm_tune(path = here("data/RGRH20BAISpecies.csv"),
@@ -957,13 +1004,13 @@ gbm_regressor_bai_residuals_species <-
    gbm(BAI_GR ~ .,
       data = 
         rgr_msh_na %>% filter(Group == "Train")%>% filter(!is.na(BAI_GR))%>%
-        select(any_of(c(EnvironmentalVariablesKeep, "Species", "Tree.Age", "BAI_GR"))) %>%
+        select(any_of(c(EnvironmentalVariablesKeep, "Species", "Tree.Age", "BAI_GR", "julian.date.2011"))) %>%
         mutate(Species = factor(Species)),
       n.trees = 1000,
-      interaction.depth = 3, # max depth
+      interaction.depth = 9, # max depth
       shrinkage = 0.05, #learning rate
-      n.minobsinnode = 5, #col_sample_rate 
-      bag.fraction = 0.58, # sample_rate,
+      n.minobsinnode = 7, #col_sample_rate 
+      bag.fraction = 0.74, # sample_rate,
       verbose = FALSE,
       n.cores = NULL,
       cv.folds = 5)
@@ -985,13 +1032,14 @@ summary(gbm_regressor_bai_residuals_species, plotit = FALSE)%>%
          Class = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
                            Feature %in% PlantTraitsKeep ~ "Plant Traits",
                            Feature %in% "Tree.Age" ~ "Tree Age",
+                           Feature %in% "julian.date.2011" ~ "Julian Date",
                            TRUE ~ "Species")) %>%
   select(-var, rel.inf)%>%
   left_join(labels_rgr_msh %>% select(Feature, Label), by = c("Feature" = "Feature"))%>%
   mutate(RelativeImportance = Importance/sum(Importance)) %>%
   ggplot(aes(x = reorder(Label, - RelativeImportance),  y = RelativeImportance, color = Class))+
   geom_point()+
-  labs(x = "", y = "Relative Importance", color = "", caption = "Biomass Relative Growth Rate")+
+  labs(x = "", y = "Relative Importance", color = "", caption = "Basal Relative Growth Rate")+
   scale_y_continuous(labels = scales::percent)+
   theme(axis.line = element_line(color = 'grey50'),
         legend.position = "bottom",
@@ -1125,16 +1173,19 @@ DT::datatable(InteractionsGBMBAISpecies %>% arrange(desc(Value)))
 
 kruskal.test(Value ~ Class, data = 
      InteractionsGBMBAISpecies %>% arrange(desc(Value)) %>% 
-     #filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
      mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
                                     Target %in% PlantTraitsKeep ~ "Plant Traits",
                                     Target %in% "Tree.Age" ~ "Tree Age",
+                                    Target %in% "julian.date.2011" ~ "Julian Date",
                                     TRUE ~ "Environmental Conditions"),
             SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
                                     Source %in% PlantTraitsKeep ~ "Plant Traits",
                                     Source %in% "Tree.Age" ~ "Tree Age",
+                                    Source %in% "julian.date.2011" ~ "Julian Date",
                                     TRUE ~ "Environmental Conditions"),
-            Class = paste0(TargetGroup, ":", SourceGroup)
+             Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
      )%>%
        group_by(Class) %>%
   top_n(15, Value))
@@ -1147,17 +1198,19 @@ kruskal.test(Value ~ Class, data =
 ```{r, error=FALSE, message=FALSE, echo=FALSE}
 
 InteractionsGBMBAISpecies %>% arrange(desc(Value)) %>% 
-  #filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
-  #filter(Value >0.1)%>%
   mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Target %in% PlantTraitsKeep ~ "Plant Trait",
                                  Target %in% "Tree.Age" ~ "Tree Age",
+                                 Target %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
          SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Source %in% PlantTraitsKeep ~ "Plant Trait",
                                  Source %in% "Tree.Age" ~ "Tree Age",
+                                 Source %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
-         Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
+          Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
          )%>%
        group_by(Class) %>%
   top_n(15, Value)%>%
@@ -1174,17 +1227,19 @@ InteractionsGBMBAISpecies %>% arrange(desc(Value)) %>%
 ```{r, error=FALSE, message=FALSE, echo=FALSE}
 
 InteractionsGBMBAISpecies %>% arrange(desc(Value)) %>% 
-  #filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
-  #filter(Value >0.1)%>%
   mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Target %in% PlantTraitsKeep ~ "Plant Trait",
                                  Target %in% "Tree.Age" ~ "Tree Age",
+                                 Target %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
          SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Source %in% PlantTraitsKeep ~ "Plant Trait",
                                  Source %in% "Tree.Age" ~ "Tree Age",
+                                 Source %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
-         Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
          )%>%
        group_by(Class) %>%
   top_n(15, Value)%>%
@@ -1202,17 +1257,21 @@ InteractionsGBMBAISpecies %>% arrange(desc(Value)) %>%
 ```{r, error=FALSE, message=FALSE, echo=FALSE}
 
 InteractionsGBMBAISpecies %>% arrange(desc(Value)) %>% 
- # filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
-  #filter(Value >0.1)%>%
+  filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
   mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Target %in% PlantTraitsKeep ~ "Plant Trait",
                                  Target %in% "Tree.Age" ~ "Tree Age",
+                                 Target %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
          SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Source %in% PlantTraitsKeep ~ "Plant Trait",
                                  Source %in% "Tree.Age" ~ "Tree Age",
+                                 Source  %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
-         Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
+          Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
          )%>%
        group_by(Class) %>%
   top_n(15, Value)%>%
@@ -1247,7 +1306,7 @@ PDPInteractions <-
             V2Min <- min(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
             gridexpand <- rgr_msh_na
             
-            Focused <- gbm_regressor_bio_residuals_species$var.names 
+            Focused <- gbm_regressor_bai_residuals_species$var.names 
             Selecting <- Focused[!Focused%in%c(.x,.y)]
             
             Constant <-  
@@ -1297,7 +1356,7 @@ PDPInteractions <-
         V2Min <- min(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
         gridexpand <- rgr_msh_na
         
-         Focused <- gbm_regressor_bio_residuals_species$var.names 
+         Focused <- gbm_regressor_bai_residuals_species$var.names 
             Selecting <- Focused[!Focused%in%c(.x,.y)]
             
         Constant <-  data.frame(gridexpand %>% select(all_of(Selecting))  %>% drop_na()%>%
@@ -1349,7 +1408,7 @@ PDPInteractions <-
         V1Min <- min(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
         gridexpand <- rgr_msh_na
         
-         Focused <- gbm_regressor_bio_residuals_species$var.names 
+         Focused <- gbm_regressor_bai_residuals_species$var.names 
             Selecting <- Focused[!Focused%in%c(.x,.y)]
             
         Constant <-  data.frame(gridexpand %>% select(all_of(Selecting))  %>% drop_na()%>%
@@ -1432,6 +1491,7 @@ Finally, we compare the relative importance of the various groups - tree age, pl
          Group = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
                            Feature %in% PlantTraitsKeep ~ "Plant Traits",
                            Feature %in% "Tree.Age" ~ "Tree Age",
+                           Feature %in% "julian.date.2011" ~ "Julian Date",
                            TRUE ~ "Species")) %>%
   select(-var, -rel.inf)%>%
   group_by(Group) %>%
@@ -1449,6 +1509,10 @@ Finally, we compare the relative importance of the various groups - tree age, pl
 First, we look at the best parameters from tuning. 
 
 ```{r eval=FALSE, echo=FALSE}
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Species",
+                            "Tree.Age", "BAI_GR", "julian.date.2011"))),
+          here("data/RGRH20BAISpeciesAgeEP.csv"))
 # training the model using H20
 startTime <- Sys.time()
 gbmParmBAINoDateSpeciesAgeEP <-
@@ -1476,13 +1540,13 @@ gbm_regressor_baiSpeciesAgeEP <-
       data = 
         rgr_msh_na %>% filter(Group == "Train")%>% filter(!is.na(BAI_GR))%>%
         select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep,"Species" ,
-                        "Tree.Age", "BAI_GR")))%>%
+                        "Tree.Age", "BAI_GR", "julian.date.2011")))%>%
         mutate(Species = factor(Species)),
       n.trees = 1000,
-      interaction.depth = 12, #max depth 
+      interaction.depth = 9, #max depth 
       shrinkage = 0.05, #learning rate
-      n.minobsinnode = 10, #col_sample_rate 
-      bag.fraction =  0.54, # sample_rate,
+      n.minobsinnode = 21, #col_sample_rate 
+      bag.fraction =  0.49, # sample_rate,
       verbose = FALSE,
       n.cores = NULL,
       cv.folds = 5)
@@ -1504,6 +1568,7 @@ summary(gbm_regressor_baiSpeciesAgeEP, plotit = FALSE)%>%
          Class = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
                            Feature %in% PlantTraitsKeep ~ "Plant Traits",
                            Feature %in% "Tree.Age" ~ "Tree Age",
+                           Feature %in% "julian.date.2011" ~ "Julian Date",
                            TRUE ~ "Species Identity")) %>%
   select(-var, rel.inf)%>%
   left_join(labels_rgr_msh %>% select(Feature, Label), by = c("Feature" = "Feature"))%>%
@@ -1641,16 +1706,21 @@ DT::datatable(InteractionsGBMBAI %>% arrange(desc(Value)))
 kruskal.test(Value ~ Class, data = 
      InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
      filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
      mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
                                     Target %in% PlantTraitsKeep ~ "Plant Traits",
                                     Target %in% "Tree.Age" ~ "Tree Age",
+                                    Target %in% "julian.date.2011" ~ "Julian Date",
                                     TRUE ~ "Environmental Conditions"),
             SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
                                     Source %in% PlantTraitsKeep ~ "Plant Traits",
                                     Source %in% "Tree.Age" ~ "Tree Age",
+                                    Source %in% "julian.date.2011" ~ "Julian Date",
                                     TRUE ~ "Environmental Conditions"),
-            Class = paste0(TargetGroup, ":", SourceGroup)
-     )%>%
+      Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         )%>%
        group_by(Class) %>%
   top_n(15, Value))
 
@@ -1663,16 +1733,20 @@ kruskal.test(Value ~ Class, data =
 
 InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
   filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
-  #filter(Value >0.1)%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
   mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Target %in% PlantTraitsKeep ~ "Plant Trait",
                                  Target %in% "Tree.Age" ~ "Tree Age",
+                                 Target %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
          SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Source %in% PlantTraitsKeep ~ "Plant Trait",
                                  Source %in% "Tree.Age" ~ "Tree Age",
+                                 Source %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
-         Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
          )%>%
        group_by(Class) %>%
   top_n(15, Value)%>%
@@ -1689,17 +1763,21 @@ InteractionsGBMBAI %>% arrange(desc(Value)) %>%
 ```{r, error=FALSE, message=FALSE, echo=FALSE}
 
 InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
-  filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
-  #filter(Value >0.1)%>%
+ filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
   mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Target %in% PlantTraitsKeep ~ "Plant Trait",
                                  Target %in% "Tree.Age" ~ "Tree Age",
+                                 Target %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
          SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Source %in% PlantTraitsKeep ~ "Plant Trait",
                                  Source %in% "Tree.Age" ~ "Tree Age",
+                                 Source %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
-         Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
          )%>%
        group_by(Class) %>%
   top_n(15, Value)%>%
@@ -1717,16 +1795,20 @@ InteractionsGBMBAI %>% arrange(desc(Value)) %>%
 
 InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
   filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
-  #filter(Value >0.1)%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
   mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Target %in% PlantTraitsKeep ~ "Plant Trait",
                                  Target %in% "Tree.Age" ~ "Tree Age",
+                                 Target %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
          SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
                                  Source %in% PlantTraitsKeep ~ "Plant Trait",
                                  Source %in% "Tree.Age" ~ "Tree Age",
+                                 Source %in% "julian.date.2011" ~ "Julian Date",
                                  TRUE ~ "Environment"),
-         Class = str_wrap(paste0(TargetGroup, ":", SourceGroup), 60)
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
          )%>%
        group_by(Class) %>%
   top_n(15, Value)%>%
@@ -1945,6 +2027,7 @@ Finally, we compare the relative importance of the various groups - tree age, pl
          Group = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
                            Feature %in% PlantTraitsKeep ~ "Plant Traits",
                            Feature %in% "Tree.Age" ~ "Tree Age",
+                           Feature %in% "julian.date.2011" ~ "Julian Date",
                            TRUE ~ "Species Identity")) %>%
   select(-var, -rel.inf)%>%
   group_by(Group) %>%
