@@ -30,7 +30,8 @@ h20_gbm_tune <- function(path_data, status, type){
   
   
   ## Depth 10 is usually plenty of depth for most datasets, but you never know
-  hyper_params = list( max_depth = seq(1,16,2) )
+  hyper_params = list( max_depth = seq(1,16,2),
+                       learn_rate = 0.05)
   #hyper_params = list( max_depth = c(4,6,8,12,16,20) ) ##faster for larger datasets
   grid <- h2o.grid(
     ## hyper parameters
@@ -49,12 +50,9 @@ h20_gbm_tune <- function(path_data, status, type){
     ## more trees is better if the learning rate is small enough
     ## here, use "more than enough" trees - we have early stopping
     ntrees = 10000,
-    ## smaller learning rate is better
-    ## since we have learning_rate_annealing, we can afford to start with a bigger learning rate
-    learn_rate = 0.05,
     ## learning rate annealing: learning_rate shrinks by 1% after every tree
     ## (use 1.00 to disable, but then lower the learning_rate)
-    learn_rate_annealing = 0.99,
+    learn_rate_annealing = 1,
     ## sample 80% of rows per tree
     sample_rate = 0.8,
     ## sample 80% of columns per split
@@ -64,20 +62,23 @@ h20_gbm_tune <- function(path_data, status, type){
     ## early stopping once the validation MSE doesn't improve by at least 0.01% for 5 consecutive scoring events
     stopping_rounds = 5,
     stopping_tolerance = 1e-4,
-    stopping_metric = "MSE",
+    stopping_metric = "deviance",
     ## score every 10 trees to make early stopping reproducible (it depends on the scoring interval)
     score_tree_interval = 10
   )
-  ## sort the grid models by decreasing RMSE
-  sortedGrid <- h2o.getGrid("depth_grid", sort_by="MSE", decreasing = TRUE)
+  ## sort the grid models by decreasing deviance
+  sortedGrid <- h2o.getGrid("depth_grid", sort_by="residual_deviance", decreasing = TRUE)
   ## find the range of max_depth for the top 5 models
   topDepths = sortedGrid@summary_table$max_depth[1:5]
   minDepth = min(as.numeric(topDepths))
   maxDepth = max(as.numeric(topDepths))
   
+  
   hyper_params = list(
     ## restrict the search to the range of max_depth established above
     max_depth = seq(minDepth,maxDepth,1),
+    ## restrict the search to the range of max_depth established above
+    learn_rate = 0.05,
     ## search a large space of row sampling rates per tree
     sample_rate = seq(0.2,1,0.01),
     ## search a large space of column sampling rates per split
@@ -106,7 +107,7 @@ h20_gbm_tune <- function(path_data, status, type){
     seed = 1234,
     ## early stopping once the leaderboard of the top 5 models is converged to 0.1% relative difference
     stopping_rounds = 5,
-    stopping_metric = "MSE",
+    stopping_metric = "deviance",
     stopping_tolerance = 1e-3
   )
   
@@ -128,16 +129,13 @@ h20_gbm_tune <- function(path_data, status, type){
     ## more trees is better if the learning rate is small enough
     ## use "more than enough" trees - we have early stopping
     ntrees = 10000,
-    ## smaller learning rate is better
-    ## since we have learning_rate_annealing, we can afford to start with a bigger learning rate
-    learn_rate = 0.05,
     ## learning rate annealing: learning_rate shrinks by 1% after every tree
     ## (use 1.00 to disable, but then lower the learning_rate)
-    learn_rate_annealing = 0.99,
+    learn_rate_annealing = 1,
     ## early stopping based on timeout (no model should take more than 1 hour - modify as needed)
     max_runtime_secs = 3600,
     ## early stopping once the validation MSE doesn't improve by at least 0.01% for 5 consecutive scoring events
-    stopping_rounds = 5, stopping_tolerance = 1e-4, stopping_metric = "MSE",
+    stopping_rounds = 5, stopping_tolerance = 1e-4, stopping_metric = "deviance",
     ## score every 10 trees to make early stopping reproducible (it depends on the scoring interval)
     score_tree_interval = 10,
     ## base random number generator seed for each model (automatically gets incremented internally for each model)
@@ -145,12 +143,13 @@ h20_gbm_tune <- function(path_data, status, type){
   )
   
   
-  sortedGrid <- h2o.getGrid("final_grid", sort_by = "mse", decreasing = TRUE)
+  sortedGrid <- h2o.getGrid("final_grid", sort_by = "residual_deviance", decreasing = TRUE)
   
   
   gbm <- h2o.getModel(sortedGrid@model_ids[[1]])
   gbm_parameters <- gbm@parameters
-  cat(paste0("The MSE on the test data is ", h2o.mse(h2o.performance(gbm, newdata = test))))
+  cat(paste0("The deviance on the test data is ", h2o.residual_deviance(gbm, train = FALSE, 
+                                                                        valid = FALSE, xval = FALSE)))
   h2o.shutdown(prompt = FALSE)
   return(gbm_parameters)
   

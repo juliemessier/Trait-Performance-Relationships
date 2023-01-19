@@ -1,0 +1,1167 @@
+---
+title: "Testing central assumptions of trait-based ecology"
+subtitle: "Appendix"
+date: "`r Sys.Date()`"
+output: 
+   html_document:
+    theme: paper 
+    toc: TRUE
+    highlight: tango
+    number_sections: 2
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE,  out.extra = " ")
+library(vip)
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+library(dplyr)
+library(here)
+library(skimr)
+library(reshape2)
+library(tidymodels)
+library(qdapTools)
+library(rsample)
+library(corrr)
+library(broom)
+library(extrafont)
+library(viridis)
+library(car)
+library(gbm)
+library(jcolors)
+library(ggthemes)
+library(factoextra)
+library(ggrepel)
+source(here("scripts/1. functions.R"))
+source(here("scripts/2. gbm_h2o_tune.R"))
+theme_set(theme_tufte())
+```
+
+# Background{.tabset}
+
+We hope to explore the relative influence of physical traits, environmental conditions and species identity on the growth rate of trees.  A gradient boosted model seems like a good candidate for this work since they:
+
+* Can effectively model interactions, without the modeler specifying them
+* Do not drop rows with NAs - these rows are put into their own node (i.e., na.action = na.pass)
+* Can effectively model non-linear relationships - these are quite likely in the relationship between growth rate and the predictors. The GBM can help us understand them, but it can also model them.
+
+## Extracting Principle Components for Environmental Traits{.tabset}
+
+We, first, converted the environmental variables to principle components as they were highly correlated. We visualized the PCA and used the eginvectors to help figure which environmental condition best explained that PC. There were 5 - `Soil Fertility, Light, Temperature,  pH, Soil.Humidity.Depth, and Slope`.  
+
+
+```{r include=FALSE}
+
+rgr_msh_raw <- read_csv(here("data/RGR_MSH.csv"),
+                        guess_max = 10000,
+                        col_types = cols())
+
+rgr_msh_na_raw <- read_csv(here("data/RGR_MSH_NA.csv"),
+                        guess_max = 10000,
+                        col_types = cols())
+# now, let's remove columns that are either too correlated are would not be useful
+labels_rgr_msh <- read_csv(here("data/labels.csv"),
+                        guess_max = 10000,
+                        col_types = cols())
+
+# which traits are environmental versus plants?
+
+EnvironmentalVariablesKeep <- labels_rgr_msh %>% filter(Class == 2) %>% select(Feature) %>% reduce(c)
+PlantTraitsKeep <- labels_rgr_msh %>% filter(Class == 1) %>% select(Feature) %>% reduce(c)
+OthersKeep <- labels_rgr_msh %>% filter(Class%in% c(3, 4, 5,7) )%>% select(Feature) %>% reduce(c) 
+OthersKeep <- c("SampleID", "Site", "Species", "julian.date.2011", 
+                OthersKeep[!OthersKeep%in% c("SampleID", "Site", "Species", "julian.date.2011")])
+
+environ_variables <- labels_rgr_msh$Feature[which(labels_rgr_msh$Class==2)]
+environ_name <- which(colnames(rgr_msh_raw)%in%environ_variables)
+
+plant_variables <- labels_rgr_msh$Feature[which(labels_rgr_msh$Class==1)]
+plant_name <- which(colnames(rgr_msh_raw)%in%plant_variables)
+```
+
+
+
+```{r include=FALSE}
+rgr_na.pca <- prcomp(na.omit(rgr_msh_na_raw %>% select(any_of(EnvironmentalVariablesKeep))),
+                                center = TRUE, scale =TRUE)
+# export eginvectors data
+TW_G_Plot_NA<- data.frame(apply(data.frame(get_pca_ind(rgr_na.pca)$coord), 2, scale))
+# save the column names as metric names
+colnames(TW_G_Plot_NA) <- colnames(rgr_na.pca$x)
+# export site coordinates
+TW_G_Plot_VC_NA<- data.frame(get_pca_var(rgr_na.pca)$coord)
+# save names
+colnames(TW_G_Plot_VC_NA) <- colnames(rgr_na.pca$x)
+
+# make the metric names a column
+TW_G_Plot_VC_NA$Feature <- rownames(TW_G_Plot_VC_NA)
+# order
+TW_G_Plot_VC_NA$Order <- 1:nrow(TW_G_Plot_VC_NA)
+# add metric labels for plotting
+TW_G_Plot_VC_NA <- merge(TW_G_Plot_VC_NA,labels_rgr_msh,
+                      by = "Feature")
+# ensure we have the correct order
+TW_G_Plot_VC_NA <- TW_G_Plot_VC_NA[order(TW_G_Plot_VC_NA$Order),]
+
+rg_na.eigen <-  get_eigenvalue(rgr_na.pca)
+
+```
+
+### PC1-PC2
+
+```{r echo=FALSE, message=FALSE}
+PCAObject <- prcomp(na.omit(rgr_msh_raw%>% 
+                              select(any_of(EnvironmentalVariablesKeep))), # use na.omit if you rows with missing data
+                                center = TRUE, scale =TRUE)
+
+
+
+# eginvectors - where are these varibles located in PCA space?
+EginVectors <- data.frame(get_pca_var(PCAObject)$coord)
+
+EginVectors$Feature <-rownames(EginVectors)
+
+EginVectors <-
+  tibble(EginVectors) %>% left_join(labels_rgr_msh %>% select(Feature:Label)) %>% 
+  mutate(Label = str_wrap(Label, 25))
+# location of each site/plot in PCA space
+PrincipleComponents <- data.frame(apply(data.frame(get_pca_ind(PCAObject)$coord), 2, scale))
+
+
+EginValues <-  get_eigenvalue(PCAObject)
+
+
+ggplot(data = PrincipleComponents, aes(x = Dim.1 , y = Dim.2))+                                   
+geom_segment(data=EginVectors,aes(x=0,xend = Dim.1 , y=0, yend = Dim.2),
+               arrow = arrow(length = unit(0.2, "cm"),
+                             type="closed"),size = 0.5,color = "grey25",inherit.aes=TRUE)+
+geom_text_repel(data=EginVectors,
+                  aes(x = Dim.1 , y = Dim.2,label= Label),
+                family = "serif",
+                lineheight = 0.7, size = 3,
+                  box.padding = unit(1.5, "lines"),
+                  point.padding = unit(0.5, "lines"))+
+geom_vline(xintercept = 0, linetype = "dashed")+
+geom_hline(yintercept = 0, linetype = "dashed")+
+xlab(paste("PC1 (", round(EginValues$variance.percent[1], 2), " % Explained Variance)\nSoil Fertility")) +
+ylab(paste("PC2 (", round(EginValues$variance.percent[2], 2), " % Explained Variance)\nLight")) +
+  theme(axis.line = element_line(color = 'grey50'))
+
+```
+
+
+
+### P3-PC4
+
+```{r echo=FALSE }
+ggplot(data = TW_G_Plot_NA, aes(x = PC3, y = PC4))+                                   
+geom_segment(data=TW_G_Plot_VC_NA,aes(x=0,xend = PC3, y=0, yend = PC4),
+               arrow = arrow(length = unit(0.2, "cm"),
+                             type="closed"),size = 0.5,color = "grey25",inherit.aes=TRUE)+
+geom_text_repel(data=TW_G_Plot_VC_NA,
+                  aes(x = PC3, y = PC4,label= stringr::str_wrap(Label,23)), 
+                family = "serif",
+                lineheight = 0.7, size = 3,
+                  box.padding = unit(1.5, "lines"),
+                  point.padding = unit(0.5, "lines"))+
+geom_vline(xintercept = 0, linetype = "dashed")+
+geom_hline(yintercept = 0, linetype = "dashed")+
+xlab(paste("PC3 (", round(rg_na.eigen$variance.percent[3], 2), " % Explained Variance)\nTemperature")) +
+ylab(paste("PC4 (", round(rg_na.eigen$variance.percent[4], 2), " % Explained Variance)")) +
+  theme(axis.line = element_line(color = 'grey50'))
+```
+
+
+### PC5-PC6
+
+```{r echo=FALSE}
+
+ggplot(data = TW_G_Plot, aes(x = PC5, y = PC6))+                                   
+geom_segment(data=TW_G_Plot_VC,aes(x=0,xend = PC5, y=0, yend = PC6),
+               arrow = arrow(length = unit(0.2, "cm"),
+                             type="closed"),size = 0.5,color = "grey25",inherit.aes=TRUE)+
+geom_text_repel(data=TW_G_Plot_VC,
+                  aes(x = PC5, y = PC6,label= stringr::str_wrap(Label,23)), 
+                lineheight = 0.7, size = 3,
+                  box.padding = unit(1.5, "lines"),
+                  point.padding = unit(0.5, "lines"),
+                family = "serif")+
+geom_vline(xintercept = 0, linetype = "dashed")+
+geom_hline(yintercept = 0, linetype = "dashed")+
+xlab(paste("PC5 (", round(rg.eigen$variance.percent[6], 2), " % Explained Variance)\nSoil Humidity Depth")) +
+ylab(paste("PC6 (", round(rg.eigen$variance.percent[5], 2), " % Explained Variance)\nSlope")) +
+  theme(axis.line = element_line(color = 'black'))
+```
+
+
+
+
+```{r echo=FALSE}
+# now for correlation assessments, but need to rename PCs based on what they represent
+TW_G_Plot_NA <- TW_G_Plot_NA[,1:6]
+pca_env <- c( "Soil.Fertility", "Light", "Temperature",   "pH", "Soil.Humidity.Depth ", "Slope")
+colnames(TW_G_Plot_NA) <- pca_env
+
+TW_G_Plot <- TW_G_Plot[,1:6]
+colnames(TW_G_Plot) <- pca_env
+
+# which rows are ommitted from the PCA because there are NAs?
+rgr_msh_na_raw_pca <- na.omit(rgr_msh_na_raw[,c(1, environ_name)])
+which.g <- which(rgr_msh_na_raw$SampleID%in%rgr_msh_na_raw_pca$SampleID)
+RGR_MSH_PCA <- data.frame(rgr_msh_raw[,-environ_name], TW_G_Plot)
+RGR_MSH_NA_PCA <- data.frame(rgr_msh_na_raw[which.g,-environ_name], TW_G_Plot_NA)
+```
+
+
+### Correlation on Plant Traits
+
+We want to ensure that the plant traits are not correlated. Past work suggests that they are not easily represented using a PCA. So, we will not use the this feature reduction method. 
+
+```{r message=FALSE, echo=FALSE}
+RGR_MSH_NA_PCA[,plant_name_na] %>%
+  correlate() %>%
+  # Re-arrange a correlation data frame 
+  # to group highly correlated variables closer together.
+  rearrange(method = "MDS", absolute = FALSE) %>%
+  shave() %>% 
+  rplot(shape = 19, colors = inferno(2), print_cor = TRUE)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom")
+  
+```
+
+## About Gradient Boosted Models
+
+A gradient boosted machine/model is a machine learning model that uses decision trees to fit the data.
+
+A decision tree first starts with all of the observations, then, from the variables provided, it tries to figure out which variable split would result in the "purest" groupings of the data. So, in this case, it would try to place rows with higher growth rates in one node, and those with lower growth rates in another node. 
+
+GBMs are an ensemble of decision trees, nut they are fit sequentially. We call GBMs an ensemble of weak learners as each subsequent tree is an attempt to correct the errors of the previous tree. Thus, while one tree, by itself, can not describe the relationships, with the use of all the trees, we can. Below is a figure by Bradly Bohemke that attempts to illustrate how each subsequent tree improves the fit on the data.
+![Boosted regression decision stumps as 0-1024 successive trees are added](https://bradleyboehmke.github.io/HOML/10-gradient-boosting_files/figure-html/boosting-in-action-1.png)
+
+
+
+
+```{r include = FALSE}
+# prior error suggests that there are single quotation marks used to parse numbers
+# I specify that we should read those as a thousand separator
+# we will no longer used the data with the influence of sampling date removed
+rgr_msh_julian <- read_csv(here("data/RGR_MSH_PCA_NA.csv"),
+                        guess_max = 10000,
+                        col_types = cols())
+# these are the labels for the variables - needed for plotting
+labels_rgr_msh <- read_csv(here("data/labels.csv"),
+                        guess_max = 10000,
+                        col_types = cols())
+# this helps in listing the variables we actually need to keep, depending on the analyses
+PlantTraitsKeep <- labels_rgr_msh %>% filter(Class == 1) %>% select(Feature) %>% reduce(c)
+EnvironmentalVariablesKeep <- c( "Soil.Fertility", "Light", "Temperature",  
+                                    "pH", "Soil.Humidity.Depth ", "Slope")
+OthersKeep <- labels_rgr_msh %>% filter(Class%in% c(3,4, 5,7) )%>% select(Feature) %>% reduce(c) 
+OthersKeep <- c("SampleID", "Site", "Species",  "julian.date.2011",
+                OthersKeep[!OthersKeep%in% c("SampleID", "Site", "Species", "julian.date.2011")])
+```
+
+
+``` {r include = FALSE}
+# need a training and test set assess the performance of the model
+# a 70:30 split is typical
+# first, I will work with the imputed data
+set.seed(634)
+split_train_test <-
+  initial_split(
+    data = rgr_msh_julian, 
+    prop = 0.80) 
+
+rgr_msh_na <-
+  split_train_test %>% training() %>% mutate(Group = "Train")%>%
+  bind_rows(split_train_test %>% testing() %>% mutate(Group = "Test"))
+
+```
+
+
+
+
+# Compare Models
+
+We compared the fit of three used a gradient boosted models to  determine how environmental gradients and physical traits influence RGR: 
+
+* Model 1 (Plant Traits + Environmental Conditions + Tree Age): this model assumes that in additional to tree age, growth rates are best described by the traits of the tree and environmental conditions. 
+* Model 2 (Species Identity + Environmental Conditions + Tree Age): it is possible that species identity is a stronger predictor of growth rates than the traits of the tree. As such, in this model, we ignore plant traits and use species identity.
+* Model 3 (Species Identity + Plant Traits + Environmental Conditions + Tree Age): here, we hypothesize that while plant traits and environmental conditions are influential, we may have greater predictive power if we also consider the species of the tree.  
+
+Though we present outputs for all three models below, we  show that the best model is Model 1, using `caret::resamples`. This function allows us to iteratively build models using the training data and measure performance each round. In the end, we have re-sampled measures of each performance metric - r squared, RSME and MSE. Before comparing model performance, however, we first train the models - this is done to help in determining a range of parameters that would fit the data best for `caret::resamples`. 
+
+## Train Models{.tabset}
+Below, we show the best parameters for the models, given the data. 
+### Model 1: Tree Age + Plant Traits + Environmental Conditions{.tabset}
+
+```{r eval=FALSE, include=FALSE}
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Tree.Age", 
+                            "BAI_GR", "julian.date.2011"))),
+          here("data/RGRH20BAI.csv"))
+# training the model using H20
+startTime <- Sys.time()
+gbmParmBAINoDate <-
+  h20_gbm_tune(path = here("data/RGRH20BAI.csv"),
+             status = "BAI_GR",
+             type = "integer")
+endTime <- Sys.time()
+endTime-startTime
+
+```
+
+
+```{r echo=FALSE}
+gbmParmBAINoDate
+
+```
+
+### Model 2: Tree Age + Species Identity + Environmental Conditions{.tabset}
+
+
+
+```{r eval=FALSE, include=FALSE}
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(any_of(c(EnvironmentalVariablesKeep, "Species", "Tree.Age", "BAI_GR", "julian.date.2011" ))),
+          here("data/RGRH20BAISpecies.csv"))
+startTime <- Sys.time()
+gbmParmBAINoDateSpecies <-
+  h20_gbm_tune(path = here("data/RGRH20BAISpecies.csv"),
+             status = "BAI_GR",
+             type = "integer")
+endTime <- Sys.time()
+endTime-startTime
+
+```
+
+
+```{r echo=FALSE}
+gbmParmBAINoDateSpecies
+
+```
+
+
+### Model 3: Tree Age + Species Identity + Plant Trait + Environmental Conditions{.tabset}
+
+```{r eval=FALSE, include=FALSE}
+write_csv(rgr_msh_na %>% filter(Group == "Train")%>%
+            select(any_of(c(EnvironmentalVariablesKeep, PlantTraitsKeep, "Species",
+                            "Tree.Age", "BAI_GR", "julian.date.2011"))),
+          here("data/RGRH20BAISpeciesAgeEP.csv"))
+# training the model using H20
+startTime <- Sys.time()
+gbmParmBAINoDateSpeciesAgeEP <-
+  h20_gbm_tune(path = here("data/RGRH20BAISpeciesAgeEP.csv"),
+             status = "BAI_GR",
+             type = "integer")
+endTime <- Sys.time()
+endTime-startTime
+
+```
+
+
+```{r echo=FALSE}
+gbmParmBAINoDateSpeciesAgeEP
+
+```
+
+## Model Performance{.tabset}
+
+Here, we present results from model comparisons and show that the best model is Model 1 - Plant Traits + Environmental Conditions. 
+
+```{r include=FALSE}
+set.seed(1)
+grid <- expand.grid(n.trees=c(100, 150, 200, 500, 1000), 
+                    interaction.depth=c(3), 
+                    shrinkage=c (0.05), 
+                    n.minobsinnode=c(13))
+gbmModel1 <- caret::train(x = 
+                    rgr_msh_na %>% filter(Group == "Train")%>% 
+                    filter(!is.na(BAI_GR))%>%
+                    select(any_of(c(EnvironmentalVariablesKeep,PlantTraitsKeep,
+                                    "Tree.Age", "BAI_GR","julian.date.2011"))) %>%
+                      select(-BAI_GR),
+                  y = 
+                    rgr_msh_na %>% filter(Group == "Train")%>% 
+                    filter(!is.na(BAI_GR)) %>% select(BAI_GR)%>% reduce(c), 
+                  method = 'gbm', 
+                  tuneGrid = grid, 
+                  verbose = FALSE)
+set.seed(1)
+grid <- expand.grid(n.trees=c(100, 150, 200, 500, 1000), 
+                    interaction.depth=c(11), 
+                    shrinkage=c (0.05), 
+                    n.minobsinnode=c(6))
+gbmModel2 <- caret::train(x = 
+                    rgr_msh_na %>% filter(Group == "Train")%>% 
+                    filter(!is.na(BAI_GR))%>%
+                    select(any_of(c(EnvironmentalVariablesKeep,
+                                    "Species", "Tree.Age", "BAI_GR","julian.date.2011"))) %>%
+                    mutate(Species = factor(Species)) %>% select(-BAI_GR),
+                  y = 
+                    rgr_msh_na %>% filter(Group == "Train")%>% 
+                    filter(!is.na(BAI_GR)) %>% select(BAI_GR)%>% reduce(c), 
+                  method = 'gbm', 
+                  tuneGrid = grid, 
+                  verbose = FALSE)
+set.seed(1)
+grid <- expand.grid(n.trees=c(100, 150, 200, 500, 1000), 
+                    interaction.depth=c(6), 
+                    shrinkage=c (0.05), 
+                    n.minobsinnode=c(18))
+gbmModel3 <- caret::train(x = 
+                    rgr_msh_na %>% filter(Group == "Train")%>% 
+                    filter(!is.na(BAI_GR))%>%
+                    select(any_of(c(EnvironmentalVariablesKeep,PlantTraitsKeep,
+                                    "Species", "Tree.Age", "BAI_GR","julian.date.2011"))) %>%
+                    mutate(Species = factor(Species)) %>% select(-BAI_GR),
+                  y = 
+                    rgr_msh_na %>% filter(Group == "Train")%>% 
+                    filter(!is.na(BAI_GR)) %>% select(BAI_GR)%>% reduce(c), 
+                  method = 'gbm', 
+                  tuneGrid = grid, 
+                  verbose = FALSE)
+
+ModelPerformanceCompare <- caret::resamples(list(`Model 1 - Plant Traits + Environmental Conditions`=gbmModel1,
+                                 `Model 2 - Species Identity + Environmental Conditions`=gbmModel2,
+                                 `Model 3 - Species Identity + Environmental Conditions + Plant Traits` = gbmModel3))
+
+```
+
+### Summary
+
+```{r echo=FALSE}
+summary(ModelPerformanceCompare)
+```
+
+### Boxplot
+
+```{r echo=FALSE}
+bwplot(ModelPerformanceCompare)
+```
+
+### Dotplot
+
+```{r echo=FALSE}
+dotplot(ModelPerformanceCompare)
+```
+
+## Model Results: Tree Age + Plant Traits + Environmental Conditions{.tabset}
+### Build Model
+
+Now, we can build the model.
+
+```{r eval=FALSE}
+set.seed(123)
+gbm_regressor_bai_residuals <-
+  gbm(BAI_GR ~ .,
+      data = 
+        rgr_msh_na %>% filter(Group == "Train")%>% filter(!is.na(BAI_GR))%>%
+        select(any_of(c(EnvironmentalVariablesKeep,
+                        PlantTraitsKeep, "Tree.Age", "BAI_GR", "julian.date.2011"))),
+      n.trees = 1000,
+      interaction.depth = 3, #max depth 
+      shrinkage = 0.05, #learning rate
+      n.minobsinnode = 13, #col_sample_rate 
+      bag.fraction = 0.28, # sample_rate,
+      verbose = FALSE,
+      n.cores = NULL,
+      cv.folds = 5)
+
+
+```
+
+
+### Relative Importance
+
+First, we look at the importance of variables in the model. 
+
+
+```{r echo=FALSE, message=FALSE}
+
+summary(gbm_regressor_bai_residuals, plotit = FALSE)%>%
+  mutate(Feature = var,
+         Importance = rel.inf,
+         Class = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Feature %in% PlantTraitsKeep ~ "Plant Traits",
+                           Feature %in% "Tree.Age" ~ "Tree Age",
+                           Feature %in% "julian.date.2011" ~ "Julian Date",
+                           TRUE ~ "Environmental Conditions")) %>%
+  select(-var, rel.inf)%>%
+  left_join(labels_rgr_msh %>% select(Feature, Label), by = c("Feature" = "Feature"))%>%
+  ggplot(aes(x = reorder(Label, - Importance/100),  y = Importance/100, color = Class))+
+  geom_point()+
+  labs(x = "", y = "Relative Importance", color = "", caption = "Basal Area Relative Growth Rate")+
+  scale_y_continuous(labels = scales::percent)+
+  theme(axis.line = element_line(color = 'grey50'),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_color_jcolors(palette = "pal7")
+  
+
+```
+
+```{r include=FALSE}
+png(paste0(here::here(), "/figures/FigureX1.png"), width = 8, height = 5, res = 600, units = "in" )
+summary(gbm_regressor_bai_residuals, plotit = FALSE)%>%
+  mutate(Feature = var,
+         Importance = rel.inf,
+         Class = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Feature %in% PlantTraitsKeep ~ "Plant Traits",
+                           Feature %in% "Tree.Age" ~ "Tree Age",
+                           Feature %in% "julian.date.2011" ~ "Julian Date",
+                           TRUE ~ "Environmental Conditions")) %>%
+  select(-var, rel.inf)%>%
+  left_join(labels_rgr_msh %>% select(Feature, Label), by = c("Feature" = "Feature"))%>%
+  mutate(RelativeImportance = Importance/sum(Importance)) %>%
+  ggplot(aes(x = reorder(Label, - RelativeImportance),  y = RelativeImportance, color = Class))+
+  geom_point()+
+  labs(x = "", y = "Relative Importance", color = "")+
+  scale_y_continuous(labels = scales::percent)+
+  theme(axis.line = element_line(color = 'grey50'),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_color_jcolors(palette = "pal7")
+  
+  
+dev.off()
+
+
+```
+
+### Partial Dependence{.tabset}
+
+Assessing how, when we hold everything else constant, what the relationships are between growth rate and the predictor.
+
+```{r echo=FALSE}
+PDP <-
+  map(.x = gbm_regressor_bai_residuals$var.names, ~{
+  Label <- labels_rgr_msh  %>% filter(Label!= "Soil pH") %>%
+    filter(Feature %in%.x) %>% select(Label) %>% reduce(c)
+  plot.gbm(x = gbm_regressor_bai_residuals, i.var = .x, return.grid = TRUE, n.trees = 1000)%>%
+    ggplot(aes_string(x = .x, y = "y"))+
+    geom_line(aes(group = 1), size = 1)+
+    labs(y = "Growth Rate", x = Label)+
+  theme(axis.line = element_line(color = 'grey50'))
+})
+PDPNames <-
+ unlist(map(.x = gbm_regressor_bai_residuals$var.names, ~{
+  Label <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% select(Label) %>% reduce(c)
+}))
+
+
+```
+
+
+
+```{r echo=FALSE, results="asis"}
+
+
+names(PDP) <- PDPNames
+
+for(i in 1:length(PDPNames)){
+  cat("####", names(PDP)[i], "{.unnumbered}\n")
+  print(PDP[[i]])
+  cat("\n\n")
+}
+
+
+```
+
+
+### Performance
+
+
+
+```{r echo=FALSE}
+predictions_gbm_bai_train <- 
+  rgr_msh_na %>% filter(Group == "Train") %>% select(BAI_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bai_residuals, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Train")))
+predictions_gbm_bai_test <- 
+   rgr_msh_na %>% filter(Group == "Test") %>% select(BAI_GR) %>%
+  mutate(Prediction = predict(gbm_regressor_bai_residuals, 
+                              newdata = rgr_msh_na %>% 
+                                filter(Group == "Test")))
+
+
+DT::datatable(metrics(predictions_gbm_bai_train, truth = "BAI_GR", estimate = Prediction) %>%
+  mutate(TrainError = .estimate) %>% select(-.estimate)%>%
+  left_join(metrics(predictions_gbm_bai_test, truth = "BAI_GR", estimate = Prediction) %>%
+              mutate(TestError = .estimate) %>% select(-.estimate))%>%
+    rename(Metric = .metric) %>%
+    select(-.estimator))
+
+```
+
+
+### Interactions | Table
+
+Let's explore the interactions in these data.
+
+```{r include=FALSE}
+exploreinteractionsBAI <-
+  do.call(rbind, lapply(gbm_regressor_bai_residuals$var.names, function(x)
+                {
+    
+      lapply(gbm_regressor_bai_residuals$var.names, function(y)
+                       {
+        Result<-
+          tryCatch(
+               {
+                 gbm::interact.gbm(
+                   x = gbm_regressor_bai_residuals,
+                     data = rgr_msh_na %>% filter(Group == "Train"),
+                   i.var = c(x,y))
+               }, error = function(msg)
+                 {
+                 return(NA)
+               }
+                     
+                 )
+        data.frame(Target = x, Source = y, Value = Result)
+                       })
+    
+              }))
+  
+
+
+```
+
+
+
+```{r error = FALSE, message=FALSE, echo=FALSE}
+InteractionsGBMBAI <-
+  do.call(rbind,exploreinteractionsBAI) %>%
+  filter(Target != Source) %>%
+  arrange(desc(Value)) %>%
+  filter(row_number() %% 2 == 1)
+
+DT::datatable(InteractionsGBMBAI %>% arrange(desc(Value)))
+```
+
+
+### Interaction | Group | Test
+
+```{r, error=FALSE, message=FALSE, echo=FALSE}
+
+kruskal.test(Value ~ Class, data = 
+     InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
+     filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+       filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
+     mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Target %in% PlantTraitsKeep ~ "Plant Traits",
+                           Target %in% "Tree.Age" ~ "Tree Age",
+                           Target %in% "julian.date.2011" ~ "Julian Date",
+                           TRUE ~ "Environmental Conditions"),
+            SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Source %in% PlantTraitsKeep ~ "Plant Traits",
+                           Source %in% "Tree.Age" ~ "Tree Age",
+                           Source %in% "julian.date.2011" ~ "Julian Date",
+                           TRUE ~ "Environmental Conditions"),
+      Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         ) %>%
+       group_by(Class) %>%
+  top_n(15, Value))
+
+```
+
+```{r, error=FALSE, message=FALSE, echo=FALSE}
+
+FSA::dunnTest(Value ~ Class, data = 
+     InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
+     filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+       filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
+     mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Target %in% PlantTraitsKeep ~ "Plant Traits",
+                           Target %in% "Tree.Age" ~ "Tree Age",
+                           Target %in% "julian.date.2011" ~ "Julian Date",
+                           TRUE ~ "Environmental Conditions"),
+            SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Source %in% PlantTraitsKeep ~ "Plant Traits",
+                           Source %in% "Tree.Age" ~ "Tree Age",
+                           Source %in% "julian.date.2011" ~ "Julian Date",
+                           TRUE ~ "Environmental Conditions"),
+      Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = ifelse(Class %in% c("Plant Traits:Environment",
+                                              "Environment:Plant Traits"),
+                                 "Plant Traits:Environment", Class)
+         ) %>%
+       group_by(Class) %>%
+  top_n(15, Value)) 
+
+```
+
+### Interaction | Group | Violin
+
+```{r, error=FALSE, message=FALSE, echo=FALSE}
+
+InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
+  filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
+  #filter(Value >0.1)%>%
+  mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Target %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Target %in% "Tree.Age" ~ "Tree Age",
+                                 Target %in% "julian.date.2011" ~ "Julian Date",
+                                 TRUE ~ "Environment"),
+         SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Source %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Source %in% "Tree.Age" ~ "Tree Age",
+                                 Source %in% "julian.date.2011" ~ "Julian Date",
+                                 TRUE ~ "Environment"),
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         )%>%
+       group_by(Class) %>%
+  top_n(15, Value)%>%
+  ggplot(aes(x = Class, y = Value))+
+  geom_violin(fill = "grey35")+
+  theme(axis.line = element_line(color = 'grey50'),
+        axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = " ", y = "Interaction Strength")
+
+```
+
+### Interaction | Group | Boxplot
+
+```{r, error=FALSE, message=FALSE, echo=FALSE}
+
+  ggplot()+
+  geom_text(data = tibble(P = letters[1:3],
+                          Y = 0.23,
+                          X = c("Environment:Environment",
+                                "Plant Trait:Environment",
+                                "Plant Trait:Plant Trait")),
+            aes(x = X, y = Y, label = P), family = "serif")+
+  
+  stat_boxplot(geom ='errorbar',
+               data = 
+                 InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
+  filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
+  #filter(Value >0.1)%>%
+  mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Target %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Target %in% "Tree.Age" ~ "Tree Age",
+                                 Target %in% "julian.date.2011" ~ "Julian Date",
+                                 TRUE ~ "Environment"),
+         SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Source %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Source %in% "Tree.Age" ~ "Tree Age",
+                                 Source %in% "julian.date.2011" ~ "Julian Date",
+                                 TRUE ~ "Environment"),
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         )%>%
+       group_by(Class) %>%
+  top_n(15, Value), aes(x = Class, y = Value)) + 
+  geom_boxplot(data = 
+                 InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
+  filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+    filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
+  #filter(Value >0.1)%>%
+  mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Target %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Target %in% "Tree.Age" ~ "Tree Age",
+                                 Target %in% "julian.date.2011" ~ "Julian Date",
+                                 TRUE ~ "Environment"),
+         SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Source %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Source %in% "Tree.Age" ~ "Tree Age",
+                                 Source %in% "julian.date.2011" ~ "Julian Date",
+                                 TRUE ~ "Environment"),
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         )%>%
+       group_by(Class) %>%
+  group_by(Class) %>%
+  top_n(15, Value), aes(x = Class, y = Value),
+                 fill = "grey35")+
+  theme(axis.line = element_line(color = 'grey50'),
+        axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = " ", y = "Interaction Strength")
+
+```
+
+
+```{r include=FALSE}
+png(paste0(here::here(), "/figures/FigureX2.png"), width = 8, height = 5, res = 600, units = "in" )
+ggplot()+
+  geom_text(data = tibble(P = letters[1:3],
+                          Y = 0.23,
+                          X = c("Environment:Environment",
+                                "Plant Trait:Environment",
+                                "Plant Trait:Plant Trait")),
+            aes(x = X, y = Y, label = P), family = "serif")+
+  
+  stat_boxplot(geom ='errorbar',
+               data = 
+                 InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
+  filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
+  mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Target %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Target %in% "Tree.Age" ~ "Tree Age",
+                                 TRUE ~ "Environment"),
+         SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Source %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Source %in% "Tree.Age" ~ "Tree Age",
+                                 TRUE ~ "Environment"),
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         )%>%
+       group_by(Class) %>%
+  top_n(15, Value), aes(x = Class, y = Value)) + 
+  geom_boxplot(data = 
+                 InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
+  filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+ filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
+  mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Target %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Target %in% "Tree.Age" ~ "Tree Age",
+                                 TRUE ~ "Environment"),
+         SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Source %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Source %in% "Tree.Age" ~ "Tree Age",
+                                 TRUE ~ "Environment"),
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         )%>%
+       group_by(Class) %>%
+  top_n(15, Value), aes(x = Class, y = Value),
+                 fill = "grey35")+
+  theme(axis.line = element_line(color = 'grey50'),
+        axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = " ", y = "Interaction Strength")
+  
+dev.off()
+
+
+```
+
+### Interaction | Group | Density
+
+```{r, error=FALSE, message=FALSE, echo=FALSE}
+
+InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
+  filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
+  mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Target %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Target %in% "Tree.Age" ~ "Tree Age",
+                                 TRUE ~ "Environment"),
+         SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Source %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Source %in% "Tree.Age" ~ "Tree Age",
+                                 TRUE ~ "Environment"),
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         )%>%
+       group_by(Class) %>%
+  top_n(15, Value)%>%
+  ggplot(aes(fill = Class, x = Value))+
+    geom_density(alpha = 0.4, color = NA) +
+  theme(axis.line = element_line(color = 'grey50'), legend.position = "bottom")+
+  labs(x = "Interaction Strength", y = "Density", fill = " ")+
+  scale_color_jcolors(palette = "pal7")
+
+```
+
+
+```{r include=FALSE}
+png(paste0(here::here(), "/figures/FigureX4.png"), width = 8, height = 5, res = 600, units = "in" )
+InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
+  filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+  filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
+  mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Target %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Target %in% "Tree.Age" ~ "Tree Age",
+                                 TRUE ~ "Environment"),
+         SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Source %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Source %in% "Tree.Age" ~ "Tree Age",
+                                 TRUE ~ "Environment"),
+         Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         )%>%
+       group_by(Class) %>%
+  top_n(15, Value)%>%
+  ggplot(aes(fill = Class, x = Value))+
+    geom_density(alpha = 0.4, color = NA) +
+  theme(axis.line = element_line(color = 'grey50'), legend.position = "bottom")+
+  labs(x = "Interaction Strength", y = "Density", fill = " ")+
+  scale_fill_jcolors(palette = "pal7")
+  
+dev.off()
+
+
+```
+
+### Interaction | Group | Top
+
+```{r error=FALSE, message=FALSE, echo=FALSE}
+
+InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
+    filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+    filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
+    mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
+                                   Target %in% PlantTraitsKeep ~ "Plant Trait",
+                                   Target %in% "Tree.Age" ~ "Tree Age",
+                                   TRUE ~ "Environment"),
+           SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
+                                   Source %in% PlantTraitsKeep ~ "Plant Trait",
+                                   Source %in% "Tree.Age" ~ "Tree Age",
+                                   TRUE ~ "Environment"),
+    Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         )%>%
+  left_join(labels_rgr_msh %>% select(Feature, Label) %>% 
+              rename(TargetLabel = "Label")%>%
+              rename(TargetFeature = "Feature")
+              , by = c("Target" = "TargetFeature")) %>%
+  left_join(labels_rgr_msh %>% select(Feature, Label) %>% 
+              rename(SourceLabel = "Label")%>%
+              rename(SourceFeature = "Feature")
+              , by = c("Source" = "SourceFeature")) %>%
+  mutate(Label = paste0(SourceLabel, "-", TargetLabel))%>%
+    group_by(Class) %>%
+    top_n(10, Value)%>%
+  ggplot(aes(x = reorder(str_wrap(Label, 30), -Value), y = Value, color = Class))+
+  geom_point()+
+  labs(x = " ", y = "Interaction Strength", color = " ")+
+  theme(axis.line = element_line(color = 'grey50'),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_color_jcolors(palette = "pal7")
+
+```
+
+
+
+```{r include=FALSE}
+png(paste0(here::here(), "/figures/FigureX3.png"), width = 15, height = 6, res = 600, units = "in" )
+InteractionsGBMBAI %>% arrange(desc(Value)) %>% 
+      filter(Target != "Tree.Age" & Source != "Tree.Age")%>%
+      filter(Target != "julian.date.2011" & Source != "julian.date.2011")%>%
+      mutate(TargetGroup = case_when(Target %in% EnvironmentalVariablesKeep ~ "Environment",
+                                     Target %in% PlantTraitsKeep ~ "Plant Trait",
+                                     Target %in% "Tree.Age" ~ "Tree Age",
+                                     TRUE ~ "Environment"),
+             SourceGroup = case_when(Source %in% EnvironmentalVariablesKeep ~ "Environment",
+                                     Source %in% PlantTraitsKeep ~ "Plant Trait",
+                                     Source %in% "Tree.Age" ~ "Tree Age",
+                                     TRUE ~ "Environment"),
+       Class = paste0(TargetGroup, ":", SourceGroup),
+         Class = str_wrap(ifelse(Class %in% c("Plant Trait:Environment", "Environment:Plant Trait"),
+                                 "Plant Trait:Environment", Class), 60)
+         )%>%
+      left_join(labels_rgr_msh %>% select(Feature, Label) %>% 
+                    rename(TargetLabel = "Label")%>%
+                    rename(TargetFeature = "Feature")
+                , by = c("Target" = "TargetFeature")) %>%
+      left_join(labels_rgr_msh %>% select(Feature, Label) %>% 
+                    rename(SourceLabel = "Label")%>%
+                    rename(SourceFeature = "Feature")
+                , by = c("Source" = "SourceFeature")) %>%
+      mutate(Label = paste0(SourceLabel, ": ", TargetLabel))%>%
+      group_by(Class) %>%
+      top_n(10, Value)%>%
+      ggplot(aes(x = reorder(str_wrap(Label, 27), -Value), y = Value, color = Class))+
+      geom_point(size = 3)+
+      labs(x = " ", y = "Interaction Strength", color = " ")+
+      theme(axis.line = element_line(color = 'grey50'),
+            legend.position = "bottom",
+            axis.text.x = element_text(angle = 45, hjust = 1))+
+      scale_color_jcolors(palette = "pal7")
+  
+dev.off()
+
+
+```
+
+### Interactions | Plots{.tabset}
+
+Now, we plot interactions with values>0.10.
+
+```{r include=FALSE}
+PDPInteractions <-
+  map2(.x = InteractionsGBMBAI %>% filter(Value>0.10) %>% select(Source) %>% reduce(c), 
+      .y = InteractionsGBMBAI %>% filter(Value>0.10) %>% select(Target) %>% reduce(c),
+      ~{
+         LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         
+        V1Max <- max(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        V1Min <- min(rgr_msh_na %>% select(!!sym(.x)) %>% reduce(c), na.rm = TRUE)
+        
+        V2Max <- max(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+        V2Min <- min(rgr_msh_na %>% select(!!sym(.y)) %>% reduce(c), na.rm = TRUE)
+        gridexpand <- rgr_msh_na
+        
+        Selecting <- gbm_regressor_bai_residuals$var.names[!gbm_regressor_bai_residuals$var.names%in%c(.x,.y)]
+        Constant <-  data.frame(gridexpand %>% select(all_of(Selecting))  %>% drop_na()%>%
+          mutate(across(Selecting, mean)) %>% head(1))
+        
+        V1Range <- seq(V1Min, V1Max, length.out = 100)
+        V2Range <- seq(V2Min, V2Max, length.out = 100)
+        PrepareGrid <- data.frame(V1 = V1Range, V2 = V2Range)
+        PrepareGrid[,.x] <- V1Range
+         PrepareGrid[,.y] <- V2Range
+         
+         PrepareGrid <- PrepareGrid %>% select(-V2, -V1)
+         
+        expand_grid(PrepareGrid, Constant) %>%
+          mutate(GrowthRate = predict( gbm_regressor_bai_residuals, n.trees = 1000,
+                                       newdata = expand_grid(PrepareGrid, Constant))) %>%
+          mutate(Variable1 = V1Range,
+                 Variable2 = cut(V1Range, quantile(V1Range), include.lowest = TRUE))%>%
+    ggplot(aes(x = Variable1, y = GrowthRate, color = Variable2))+
+    geom_line(aes(group = Variable2), size = 1)+
+    labs(y = "Growth Rate", x = LabelX, color = LabelY)+
+  theme(axis.line = element_line(color = 'grey50'), legend.position = "bottom")+
+  scale_color_jcolors(palette = "pal7")
+})
+
+
+
+```
+
+```{r include=FALSE}
+PDPInteractionsNames <-
+ map2(.x = InteractionsGBMBAI %>% filter(Value>0.10) %>% select(Source) %>% reduce(c), 
+      .y = InteractionsGBMBAI %>% filter(Value>0.10) %>% select(Target) %>% reduce(c),
+      ~{
+        
+         LabelX <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.x) %>% 
+           select(Label) %>% reduce(c)
+         LabelY <- labels_rgr_msh %>% filter(Label!= "Soil pH") %>% filter(Feature %in%.y) %>% 
+           select(Label) %>% reduce(c)
+         
+         result <- paste0(LabelX, ":", LabelY)
+         
+      }) %>% reduce(c)
+```
+
+
+
+```{r echo=FALSE, results="asis"}
+
+
+names(PDPInteractions) <- PDPInteractionsNames
+
+for(i in 1:length(PDPInteractions)){
+  cat("####", names(PDPInteractions)[i], "{.unnumbered}\n")
+  print(PDPInteractions[[i]])
+  cat("\n\n")
+}
+
+
+```
+
+### Group Relative Importance
+
+Finally, we compare the relative importance of the various groups - tree age, plant traits, and environmental conditions. 
+
+```{r echo=FALSE}
+
+ DT::datatable(summary(gbm_regressor_bai_residuals, plotit = FALSE)%>%
+  mutate(Feature = var,
+         Importance = rel.inf,
+         Group = case_when(Feature %in% EnvironmentalVariablesKeep ~ "Environmental Conditions",
+                           Feature %in% PlantTraitsKeep ~ "Plant Traits",
+                           Feature %in% "Tree.Age" ~ "Tree Age",
+                           Feature %in% "julian.date.2011" ~ "Julian Date",
+                           TRUE ~ "Environmental Conditions")) %>%
+  select(-var, -rel.inf)%>%
+  group_by(Group) %>%
+  summarise(`Relative Importance(%)` = sum(Importance))%>%
+  mutate(`Relative Importance(%)` = round(`Relative Importance(%)`/sum(`Relative Importance(%)`)*100)))
+
+```
+
+
+# Compare to GLM
+
+The model below is a GLM with the main effects and top 22 interactions from the best model. This will be used as a baseline to compare to other models Julie found in literature. We caution that this is an exploratory model, and is not a true translation of the GBM as we do not model non-linearity.
+
+```{r include=FALSE}
+InteractionsModel <- InteractionsGBMBAI %>% top_n(22,Value) %>% 
+            mutate(Interactions = paste0(Target, ":", Source)) %>% select(Interactions) %>% reduce(c)
+ModelTermsNuisance <- c(colnames(rgr_msh_na)[colnames(rgr_msh_na)%in%EnvironmentalVariablesKeep],
+          colnames(rgr_msh_na)[colnames(rgr_msh_na)%in%PlantTraitsKeep], "Tree.Age", "julian.date.2011", 
+          InteractionsModel)
+ModelTerms <- c(colnames(rgr_msh_na)[colnames(rgr_msh_na)%in%EnvironmentalVariablesKeep],
+          colnames(rgr_msh_na)[colnames(rgr_msh_na)%in%PlantTraitsKeep],InteractionsModel)
+
+MainEffectsTerms <- c(colnames(rgr_msh_na)[colnames(rgr_msh_na)%in%EnvironmentalVariablesKeep],
+          colnames(rgr_msh_na)[colnames(rgr_msh_na)%in%PlantTraitsKeep])
+
+MainEffectsTermsNuisance <- c(colnames(rgr_msh_na)[colnames(rgr_msh_na)%in%EnvironmentalVariablesKeep],
+          colnames(rgr_msh_na)[colnames(rgr_msh_na)%in%PlantTraitsKeep], "Tree.Age", "julian.date.2011")
+TestModelFormula <- 
+  paste(
+  "BAI_GR", 
+  "~", 
+  paste(ModelTermsNuisance, collapse = " + "))
+
+
+```
+
+```{r echo=FALSE}
+TestModel <- glm(TestModelFormula, 
+            data = rgr_msh_na)
+summary(TestModel) 
+```
+
+```{r echo=FALSE}
+#calculate McFadden's R-squared for model
+cat(paste0("McFadden's R-squared for model is ", with(summary(TestModel), 1 - deviance/null.deviance)))
+
+```
+
+
+```{r echo=FALSE}
+Delete <- 
+modEvA::varPart(model = TestModel, 
+                groups = data.frame(Predictor = (TestModel$coefficients %>% names())[-1]) %>% 
+                  mutate(Group = case_when(Predictor %in% EnvironmentalVariablesKeep ~ "Environment",
+                                 Predictor %in% PlantTraitsKeep ~ "Plant Trait",
+                                 Predictor %in% "Tree.Age" ~ "Interaction",
+                                 Predictor %in% "julian.date.2011" ~ "Interaction",
+                                 str_detect(Predictor, ":") &
+                                   str_remove(str_extract(Predictor, ".+:"), ":") %in%
+                                                PlantTraitsKeep &
+                                   str_remove(str_extract(Predictor, ":.+"), ":") %in%
+                                                PlantTraitsKeep  ~ "Plant Trait",
+                                 str_detect(Predictor, ":") &
+                                   str_remove(str_extract(Predictor, ".+:"), ":") %in%
+                                                EnvironmentalVariablesKeep &
+                                   str_remove(str_extract(Predictor, ":.+"), ":") %in%
+                                                EnvironmentalVariablesKeep  ~ "Environment",
+                                 str_detect(Predictor, ":") &
+                                   str_remove(str_extract(Predictor, ".+:"), ":") %in%
+                                                c(EnvironmentalVariablesKeep, PlantTraitsKeep) &
+                                   str_remove(str_extract(Predictor, ":.+"), ":") %in%
+                                                 c(EnvironmentalVariablesKeep, PlantTraitsKeep)  ~
+                                   "Interaction",
+                                 TRUE ~ "Interaction")))
+```
+
+
