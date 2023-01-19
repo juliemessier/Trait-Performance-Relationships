@@ -1097,7 +1097,7 @@ Finally, we compare the relative importance of the various groups - tree age, pl
 ```
 
 
-# Compare to GLM
+# Compare to GLM{.tabset}
 
 The model below is a GLM with the main effects and top 22 interactions from the best model. This will be used as a baseline to compare to other models Julie found in literature. We caution that this is an exploratory model, and is not a true translation of the GBM as we do not model non-linearity.
 
@@ -1124,11 +1124,15 @@ TestModelFormula <-
 
 ```
 
+## Model Summary 
+
 ```{r echo=FALSE}
 TestModel <- glm(TestModelFormula, 
             data = rgr_msh_na)
 summary(TestModel) 
 ```
+
+## R-Squared
 
 ```{r echo=FALSE}
 #calculate McFadden's R-squared for model
@@ -1136,6 +1140,7 @@ cat(paste0("McFadden's R-squared for model is ", with(summary(TestModel), 1 - de
 
 ```
 
+## Variance Partitioning
 
 ```{r echo=FALSE}
 Delete <- 
