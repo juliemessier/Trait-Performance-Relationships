@@ -295,6 +295,7 @@ Though we present outputs for all three models below, we  show that the best mod
 
 ## Train Models{.tabset}
 Below, we show the best parameters for the models, given the data. 
+
 ### Model 1: Tree Age + Plant Traits + Environmental Conditions{.tabset}
 
 ```{r eval=FALSE, include=FALSE}
@@ -439,14 +440,99 @@ summary(ModelPerformanceCompare)
 
 ### Boxplot
 
+```{r include=FALSE}
+Result <- ModelPerformanceCompare$values
+colnames(Result) <- str_replace(colnames(Result), "~", "_")
+png(paste0(here::here(), "/figures/FigureY1.png"), width = 7, height = 5, res = 600, units = "in" )
+
+ Result %>%
+  select(matches("RMSE"))%>%
+  pivot_longer(cols = everything(),
+               names_to = "Model", names_pattern = "(.*)_", values_to = "Value")%>% 
+   mutate(Measure = "Root-Mean-Square Error") %>%
+   bind_rows(Result %>%
+  select(matches("MAE"))%>%
+  pivot_longer(cols = everything(),
+               names_to = "Model", names_pattern = "(.*)_", values_to = "Value")%>% 
+   mutate(Measure = "Mean Absolute Error"))%>%
+   bind_rows(Result %>%
+  select(matches("Rsquared"))%>%
+  pivot_longer(cols = everything(),
+               names_to = "Model", names_pattern = "(.*)_", values_to = "Value")%>% 
+   mutate(Measure = "R-Squared"))%>%
+   mutate(Measure = str_wrap(Measure, 15))%>%
+   ggplot(aes(y = Model, x = Value))+
+   geom_boxplot()+
+   facet_grid(~Measure)+
+   theme(axis.line = element_line(color = 'grey50'),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+   
+```
+
 ```{r echo=FALSE}
-bwplot(ModelPerformanceCompare)
+library(stringr)
+Result <- ModelPerformanceCompare$values
+colnames(Result) <- str_replace(colnames(Result), "~", "_")
+png(paste0(here::here(), "/figures/FigureY1.png"), width = 7, height = 5, res = 600, units = "in" )
+
+ Result %>%
+  select(matches("RMSE"))%>%
+  pivot_longer(cols = everything(),
+               names_to = "Model", names_pattern = "(.*)_", values_to = "Value")%>% 
+   mutate(Measure = "Root-Mean-Square Error") %>%
+   bind_rows(Result %>%
+  select(matches("MAE"))%>%
+  pivot_longer(cols = everything(),
+               names_to = "Model", names_pattern = "(.*)_", values_to = "Value")%>% 
+   mutate(Measure = "Mean Absolute Error"))%>%
+   bind_rows(Result %>%
+  select(matches("Rsquared"))%>%
+  pivot_longer(cols = everything(),
+               names_to = "Model", names_pattern = "(.*)_", values_to = "Value")%>% 
+   mutate(Measure = "R-Squared"))%>%
+   mutate(Measure = str_wrap(Measure, 15))%>%
+   ggplot(aes(y = Model, x = Value))+
+   geom_boxplot()+
+   facet_grid(~Measure)+
+   theme(axis.line = element_line(color = 'grey50'),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+   
+dev.off()
+
 ```
 
 ### Dotplot
 
 ```{r echo=FALSE}
-dotplot(ModelPerformanceCompare)
+Result <- ModelPerformanceCompare$values
+colnames(Result) <- str_replace(colnames(Result), "~", "_")
+ Result %>%
+  select(matches("RMSE"))%>%
+  pivot_longer(cols = everything(),
+               names_to = "Model", names_pattern = "(.*)_", values_to = "Value")%>% 
+   mutate(Measure = "Root-Mean-Square Error") %>%
+   bind_rows(Result %>%
+  select(matches("MAE"))%>%
+  pivot_longer(cols = everything(),
+               names_to = "Model", names_pattern = "(.*)_", values_to = "Value")%>% 
+   mutate(Measure = "Mean Absolute Error"))%>%
+   bind_rows(Result %>%
+  select(matches("Rsquared"))%>%
+  pivot_longer(cols = everything(),
+               names_to = "Model", names_pattern = "(.*)_", values_to = "Value")%>% 
+   mutate(Measure = "R-Squared"))%>%
+   group_by(Measure, Model)%>%
+   summarise_all(mean)%>%
+   mutate(Measure = str_wrap(Measure, 15))%>%
+   ggplot(aes(y = Model, x = Value))+
+   facet_grid(~Measure)+
+   geom_point()+
+   theme(axis.line = element_line(color = 'grey50'),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+   
 ```
 
 ## Model Results: Tree Age + Plant Traits + Environmental Conditions{.tabset}
