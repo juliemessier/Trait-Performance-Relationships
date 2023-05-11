@@ -440,11 +440,9 @@ summary(ModelPerformanceCompare)
 
 ### Boxplot
 
-```{r include=FALSE}
+```{r echo=FALSE}
 Result <- ModelPerformanceCompare$values
 colnames(Result) <- str_replace(colnames(Result), "~", "_")
-png(paste0(here::here(), "/figures/FigureY1.png"), width = 7, height = 5, res = 600, units = "in" )
-
  Result %>%
   select(matches("RMSE"))%>%
   pivot_longer(cols = everything(),
@@ -462,7 +460,8 @@ png(paste0(here::here(), "/figures/FigureY1.png"), width = 7, height = 5, res = 
    mutate(Measure = "R-Squared"))%>%
    mutate(Measure = str_wrap(Measure, 15))%>%
    ggplot(aes(y = Model, x = Value))+
-   geom_boxplot()+
+   geom_boxplot(fill = "grey75")+
+   stat_boxplot(geom = 'errorbar', color = "grey40")+
    facet_grid(~Measure)+
    theme(axis.line = element_line(color = 'grey50'),
         legend.position = "bottom",
@@ -470,7 +469,7 @@ png(paste0(here::here(), "/figures/FigureY1.png"), width = 7, height = 5, res = 
    
 ```
 
-```{r echo=FALSE}
+```{r include=FALSE}
 library(stringr)
 Result <- ModelPerformanceCompare$values
 colnames(Result) <- str_replace(colnames(Result), "~", "_")
@@ -493,7 +492,8 @@ png(paste0(here::here(), "/figures/FigureY1.png"), width = 7, height = 5, res = 
    mutate(Measure = "R-Squared"))%>%
    mutate(Measure = str_wrap(Measure, 15))%>%
    ggplot(aes(y = Model, x = Value))+
-   geom_boxplot()+
+  geom_boxplot(fill = "grey75")+
+   stat_boxplot(geom = 'errorbar', color = "grey40")+
    facet_grid(~Measure)+
    theme(axis.line = element_line(color = 'grey50'),
         legend.position = "bottom",
